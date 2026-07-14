@@ -1,0 +1,19 @@
+[package]
+name = "worldtools-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+bevy.workspace = true
+bytemuck.workspace = true
+crossbeam-channel.workspace = true
+moka.workspace = true
+shade.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+worldtools-world = { path = "../worldtools_world" }
+
+[lints]
+workspace = true

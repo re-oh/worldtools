@@ -1,0 +1,25 @@
+name = "terrain-smoke"
+command = [
+  "cargo",
+  "run",
+  "--quiet",
+  "--package",
+  "worldtools-lab",
+  "--",
+  "verify",
+  "--seed",
+  "91842",
+  "--level",
+  "0",
+]
+expected_exit = 0
+timeout_seconds = 180
+repeat = 2
+seed = 91842
+
+[env]
+RUST_LOG = "worldtools=debug"
+
+[debug]
+program = "target/debug/worldtools.exe"
+breakpoints = ["worldtools::main"]

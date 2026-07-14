@@ -1,0 +1,29 @@
+model = "gpt-5.6-sol"
+model_reasoning_effort = "medium"
+model_verbosity = "low"
+personality = "pragmatic"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+web_search = "cached"
+
+[agents]
+max_threads = 3
+max_depth = 1
+
+[features]
+hooks = true
+multi_agent = true
+
+[windows]
+sandbox = "elevated"
+
+[shell_environment_policy]
+inherit = "core"
+exclude = [
+  "AWS_*",
+  "AZURE_*",
+  "GITHUB_TOKEN",
+  "*_TOKEN",
+  "*_SECRET",
+  "*_KEY",
+]

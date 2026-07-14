@@ -1,0 +1,27 @@
+{
+  "name": "worldtools",
+  "private": true,
+  "version": "0.4.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "npm run build:wasm && npm run typecheck && vite build",
+    "build:wasm": "cargo build --manifest-path crates/bombo_core/Cargo.toml --target wasm32-unknown-unknown --release && node scripts/copy-wasm.mjs",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test",
+    "test": "vitest run",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "gl-matrix": "^3.4.4",
+    "idb-keyval": "^6.2.1",
+    "lucide": "^0.475.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.64",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "vitest": "^3.0.5"
+  }
+}

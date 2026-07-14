@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.runtime/
+.debug/runs/
+/target/
+
+crates/*/target/
+
+*.log
+*.tsbuildinfo
+.DS_Store
+Thumbs.db

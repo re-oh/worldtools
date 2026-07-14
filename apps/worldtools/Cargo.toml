@@ -1,0 +1,25 @@
+[package]
+name = "worldtools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = []
+live-debug = ["bevy/bevy_remote"]
+
+[dependencies]
+bevy.workspace = true
+crossbeam-channel.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-appender.workspace = true
+worldtools-analysis = { path = "../../crates/worldtools_analysis" }
+worldtools-render = { path = "../../crates/worldtools_render" }
+worldtools-ui = { path = "../../crates/worldtools_ui" }
+worldtools-world = { path = "../../crates/worldtools_world" }
+
+[lints]
+workspace = true
