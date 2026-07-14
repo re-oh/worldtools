@@ -244,12 +244,16 @@ fn inspect(tool: &ToolDefinition, workspace: &Path) -> ToolReport {
 fn repository_report(workspace: &Path) -> RepositoryReport {
     RepositoryReport {
         revision: command_text("git", &["rev-parse", "--verify", "HEAD"], workspace),
-        dirty: command_text("git", &["status", "--porcelain"], workspace)
+        dirty: command_output("git", &["status", "--porcelain"], workspace)
             .map(|status| !status.trim().is_empty()),
     }
 }
 
 fn command_text(program: &str, args: &[&str], workspace: &Path) -> Option<String> {
+    command_output(program, args, workspace).filter(|text| !text.is_empty())
+}
+
+fn command_output(program: &str, args: &[&str], workspace: &Path) -> Option<String> {
     let request = ProcessRequest {
         program: program.to_owned(),
         args: args.iter().map(ToString::to_string).collect(),
@@ -266,8 +270,7 @@ fn command_text(program: &str, args: &[&str], workspace: &Path) -> Option<String
     } else {
         output.stdout
     };
-    let text = String::from_utf8_lossy(&bytes).trim().to_owned();
-    (!text.is_empty()).then_some(text)
+    Some(String::from_utf8_lossy(&bytes).trim().to_owned())
 }
 
 fn rust_host(version: &str) -> Option<String> {
