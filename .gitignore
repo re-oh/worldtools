@@ -7,6 +7,5 @@ dist/
 crates/*/target/
 
 *.log
-*.tsbuildinfo
 .DS_Store
 Thumbs.db

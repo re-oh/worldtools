@@ -43,7 +43,4 @@ Use subagents for bounded, read-only exploration, evidence analysis, or independ
 - Fast lane: `cargo xtask check quick`
 - Full lane: `cargo xtask check full`
 - Focused Rust tests: `cargo nextest run -p <package> <filter>` when nextest is installed
-- Frontend tests: `npm test`
-- Frontend build: `npm run build`
-
 Run formatting before final verification. Keep generated runs, logs, snapshots, and captures out of source control.

@@ -10,7 +10,6 @@ blake3.workspace = true
 fastnoise-lite.workspace = true
 glam.workspace = true
 moka.workspace = true
-rstar.workspace = true
 serde.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
