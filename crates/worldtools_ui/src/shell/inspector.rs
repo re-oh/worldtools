@@ -1,10 +1,7 @@
-use bevy::prelude::MessageWriter;
 use bevy_egui::egui;
-use egui_phosphor_icons::icons;
 
 use crate::{
-    ActiveTool, BrushFalloff, BrushOperation, EditorCommand, EditorUiState, LayerCapabilities,
-    MapProbe,
+    ActiveTool, EditorUiState, LayerCapabilities, MapProbe,
     style::{self, BG_PANEL, INSPECTOR_WIDTH, TEXT_MUTED},
     widgets,
 };
@@ -14,7 +11,6 @@ pub fn show(
     state: &mut EditorUiState,
     capabilities: &LayerCapabilities,
     probe: &MapProbe,
-    commands: &mut MessageWriter<EditorCommand>,
 ) {
     egui::Panel::right("worldtools_inspector")
         .default_size(INSPECTOR_WIDTH)
@@ -46,20 +42,13 @@ pub fn show(
                         .selected_text(state.active_layer.label())
                         .show_ui(ui, |ui| {
                             for layer in available {
-                                if ui
-                                    .selectable_value(&mut state.active_layer, layer, layer.label())
-                                    .changed()
-                                {
-                                    commands.write(EditorCommand::SelectLayer(layer));
-                                }
+                                ui.selectable_value(&mut state.active_layer, layer, layer.label());
                             }
                         });
                 }
             });
 
-            if state.active_tool.uses_brush() {
-                brush_controls(ui, state, commands);
-            } else if state.active_tool == ActiveTool::Inspect {
+            if state.active_tool == ActiveTool::Inspect {
                 widgets::section_header(ui, "Sample");
                 if let Some(sample) = probe.selected_for(state.active_layer) {
                     widgets::property_row(ui, "Latitude", |ui| {
@@ -83,72 +72,8 @@ pub fn show(
                         .italics(),
                     );
                 }
+            } else {
+                ui.label(egui::RichText::new(state.active_layer.description()).color(TEXT_MUTED));
             }
         });
-}
-
-fn brush_controls(
-    ui: &mut egui::Ui,
-    state: &mut EditorUiState,
-    commands: &mut MessageWriter<EditorCommand>,
-) {
-    widgets::section_header(ui, "Brush");
-    let before = state.brush;
-
-    if state.active_tool == ActiveTool::Sculpt {
-        widgets::property_row(ui, "Operation", |ui| {
-            egui::ComboBox::from_id_salt("brush_operation")
-                .selected_text(state.brush.operation.label())
-                .show_ui(ui, |ui| {
-                    for operation in BrushOperation::ALL {
-                        ui.selectable_value(
-                            &mut state.brush.operation,
-                            operation,
-                            operation.label(),
-                        );
-                    }
-                });
-        });
-    }
-
-    widgets::property_row(ui, "Radius", |ui| {
-        ui.add(
-            egui::DragValue::new(&mut state.brush.radius_m)
-                .range(1.0..=2_000_000.0)
-                .speed(100.0)
-                .suffix(" m"),
-        );
-    });
-    widgets::property_row(ui, "Strength", |ui| {
-        ui.add(egui::Slider::new(&mut state.brush.strength, 0.0..=1.0));
-    });
-    widgets::property_row(ui, "Falloff", |ui| {
-        egui::ComboBox::from_id_salt("brush_falloff")
-            .selected_text(state.brush.falloff.label())
-            .show_ui(ui, |ui| {
-                for falloff in BrushFalloff::ALL {
-                    ui.selectable_value(&mut state.brush.falloff, falloff, falloff.label());
-                }
-            });
-    });
-    widgets::property_row(ui, "Spacing", |ui| {
-        ui.add(egui::Slider::new(&mut state.brush.spacing, 0.02..=1.0));
-    });
-
-    state.brush.sanitize();
-    if state.brush != before {
-        commands.write(EditorCommand::UpdateBrush(state.brush));
-    }
-
-    ui.add_space(3.0);
-    if ui
-        .button(format!(
-            "{} Clear {} edits",
-            icons::ERASER.as_str(),
-            state.active_layer.label()
-        ))
-        .clicked()
-    {
-        commands.write(EditorCommand::ClearLayerEdits(state.active_layer));
-    }
 }

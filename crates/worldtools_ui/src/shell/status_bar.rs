@@ -1,17 +1,12 @@
 use bevy_egui::egui::{self, Align, Layout};
 
 use crate::{
-    DocumentStatus, GenerationActivity, GenerationStatus, MapReadout, SaveState,
-    style::{self, BG_HEADER, ERROR, STATUS_BAR_HEIGHT, TEXT_MUTED, VALID, WARNING},
+    GenerationActivity, GenerationStatus, MapReadout,
+    style::{self, BG_HEADER, ERROR, STATUS_BAR_HEIGHT, TEXT_MUTED, VALID},
     widgets,
 };
 
-pub fn show(
-    root: &mut egui::Ui,
-    document: &DocumentStatus,
-    generation: &GenerationStatus,
-    readout: &MapReadout,
-) {
+pub fn show(root: &mut egui::Ui, generation: &GenerationStatus, readout: &MapReadout) {
     egui::Panel::bottom("worldtools_status_bar")
         .exact_size(STATUS_BAR_HEIGHT)
         .frame(style::panel_frame(BG_HEADER).inner_margin(egui::Margin::symmetric(6, 2)))
@@ -21,32 +16,7 @@ pub fn show(
                 widgets::status_indicator(ui, color);
                 ui.label(egui::RichText::new(text).color(TEXT_MUTED).size(11.0));
 
-                if !generation.dirty.is_empty() {
-                    ui.separator();
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} dirty tile{}",
-                            generation.dirty.tile_count,
-                            if generation.dirty.tile_count == 1 {
-                                ""
-                            } else {
-                                "s"
-                            }
-                        ))
-                        .color(WARNING)
-                        .size(11.0),
-                    );
-                }
-
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let save_label = match document.save_state {
-                        SaveState::Saved => "SAVED",
-                        SaveState::Modified => "MODIFIED",
-                        SaveState::Saving => "SAVING",
-                        SaveState::Failed => "SAVE FAILED",
-                    };
-                    ui.label(egui::RichText::new(save_label).color(TEXT_MUTED).size(10.0));
-
                     if readout.meters_per_pixel > 0.0 {
                         ui.separator();
                         ui.label(
@@ -78,7 +48,6 @@ pub fn show(
 fn generation_label(status: &GenerationStatus) -> (egui::Color32, String) {
     match &status.activity {
         GenerationActivity::Idle => (VALID, "Ready".to_owned()),
-        GenerationActivity::Queued { jobs } => (WARNING, format!("Queued | {jobs} jobs")),
         GenerationActivity::Running {
             stage,
             completed,

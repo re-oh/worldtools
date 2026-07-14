@@ -80,6 +80,7 @@ pub struct FrameDiagnostics {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct StreamingDiagnostics {
+    pub world_epoch: u64,
     pub level: u8,
     pub visible_tiles: usize,
     pub resident_visible_tiles: usize,
@@ -94,7 +95,6 @@ pub struct StreamingDiagnostics {
     pub resident_capacity: u64,
     pub max_in_flight: usize,
     pub ready_results: usize,
-    pub edit_count: usize,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]

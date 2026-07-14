@@ -73,6 +73,45 @@ impl CrustKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+pub enum BoundaryKind {
+    Intraplate = 0,
+    ContinentalCollision = 1,
+    SubductionArc = 2,
+    IslandArc = 3,
+    OceanRidge = 4,
+    ContinentalRift = 5,
+    Transform = 6,
+}
+
+impl BoundaryKind {
+    pub(crate) const fn from_byte(value: u8) -> Self {
+        match value {
+            1 => Self::ContinentalCollision,
+            2 => Self::SubductionArc,
+            3 => Self::IslandArc,
+            4 => Self::OceanRidge,
+            5 => Self::ContinentalRift,
+            6 => Self::Transform,
+            _ => Self::Intraplate,
+        }
+    }
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Intraplate => "Intraplate",
+            Self::ContinentalCollision => "Continental collision",
+            Self::SubductionArc => "Subduction arc",
+            Self::IslandArc => "Island arc",
+            Self::OceanRidge => "Ocean ridge",
+            Self::ContinentalRift => "Continental rift",
+            Self::Transform => "Transform fault",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum KoppenZone {
     IceCap = 0,
     Tundra = 1,
@@ -337,11 +376,18 @@ impl ResourceDeposit {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TectonicsSample {
     pub plate_id: u16,
+    pub paleo_plate_id: u16,
+    pub terrane_id: u16,
     pub crust: CrustKind,
+    pub boundary_kind: BoundaryKind,
     pub crust_age_myr: f32,
+    pub crust_thickness_km: f32,
     pub boundary: f32,
     pub convergence: f32,
     pub divergence: f32,
+    pub shear: f32,
+    pub suture: f32,
+    pub metamorphic_grade: f32,
     pub volcanism: f32,
     pub uplift_m: f32,
 }
@@ -354,6 +400,12 @@ pub struct HydrologySample {
     pub lake: f32,
     pub erosion_m: f32,
     pub sediment_m: f32,
+    pub maximum_ice_fraction: f32,
+    pub ice_flux: f32,
+    pub glacial_erosion_m: f32,
+    pub till_m: f32,
+    pub outwash_m: f32,
+    pub isostatic_rebound_m: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -435,7 +487,11 @@ impl WorldSample {
                 self.hydrology.river_strength,
                 self.hydrology.wetness.max(self.hydrology.lake),
                 self.hydrology.sediment_m,
-                self.hydrology.erosion_m,
+                if self.hydrology.maximum_ice_fraction > 0.02 {
+                    -self.hydrology.maximum_ice_fraction
+                } else {
+                    self.hydrology.erosion_m
+                },
             ],
             WorldDataLayer::Climate => [
                 self.climate.temperature_c,

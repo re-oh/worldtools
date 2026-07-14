@@ -113,7 +113,6 @@ fn summary(
     widgets::section_header(ui, "Pipeline");
     let (label, color) = match &generation.activity {
         GenerationActivity::Idle => ("idle".to_owned(), VALID),
-        GenerationActivity::Queued { jobs } => (format!("{jobs} jobs queued"), WARNING),
         GenerationActivity::Running {
             stage,
             completed,
@@ -124,11 +123,6 @@ fn summary(
     ui.horizontal(|ui| {
         widgets::status_indicator(ui, color);
         ui.label(label);
-        ui.separator();
-        ui.label(
-            egui::RichText::new(format!("{} dirty tiles", generation.dirty.tile_count))
-                .color(TEXT_MUTED),
-        );
     });
 
     widgets::section_header(ui, "Capture");
@@ -186,7 +180,7 @@ fn streaming(
                 datum(ui, "REQUESTED", stream.requested_jobs.to_string());
                 ui.end_row();
                 datum(ui, "INVALIDATED", stream.invalidated_tiles.to_string());
-                datum(ui, "EDITS", stream.edit_count.to_string());
+                datum(ui, "READY", stream.ready_results.to_string());
                 ui.end_row();
                 datum(
                     ui,
@@ -325,14 +319,13 @@ fn viewport(ui: &mut egui::Ui, telemetry: &DebugTelemetry) {
 fn layers(ui: &mut egui::Ui, capabilities: &LayerCapabilities, editor: &EditorUiState) {
     widgets::section_header(ui, "Native layer contract");
     egui::Grid::new("debug_layers_grid")
-        .num_columns(4)
+        .num_columns(3)
         .spacing([10.0, 4.0])
         .striped(true)
         .show(ui, |ui| {
             ui.strong("LAYER");
             ui.strong("STATE");
-            ui.strong("VISIBLE");
-            ui.strong("OPACITY");
+            ui.strong("ACTIVE");
             ui.end_row();
             for layer in WorldLayer::ALL {
                 ui.label(layer.label());
@@ -345,12 +338,11 @@ fn layers(ui: &mut egui::Ui, capabilities: &LayerCapabilities, editor: &EditorUi
                             .on_hover_text(reason);
                     }
                 }
-                ui.label(if editor.layer_visible(layer) {
+                ui.label(if editor.active_layer == layer {
                     "yes"
                 } else {
-                    "no"
+                    ""
                 });
-                ui.label(format!("{:.0}%", editor.layer_opacity(layer) * 100.0));
                 ui.end_row();
             }
         });

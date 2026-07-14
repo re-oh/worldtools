@@ -28,34 +28,10 @@ impl fmt::Display for PipelineStage {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum GenerationScope {
-    World,
-    Visible,
-    #[default]
-    Dirty,
-}
-
-impl GenerationScope {
-    pub const ALL: [Self; 3] = [Self::Dirty, Self::Visible, Self::World];
-
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::World => "Entire world",
-            Self::Visible => "Visible region",
-            Self::Dirty => "Dirty tiles",
-        }
-    }
-}
-
 #[derive(Debug, Default, Clone, PartialEq)]
 pub enum GenerationActivity {
     #[default]
     Idle,
-    Queued {
-        jobs: u32,
-    },
     Running {
         stage: PipelineStage,
         completed: u32,
@@ -66,21 +42,61 @@ pub enum GenerationActivity {
     },
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct DirtyRegion {
-    pub tile_count: u32,
-    pub from_stage: Option<PipelineStage>,
-}
-
-impl DirtyRegion {
-    #[must_use]
-    pub const fn is_empty(self) -> bool {
-        self.tile_count == 0
-    }
-}
-
 #[derive(Resource, Debug, Default, Clone, PartialEq)]
 pub struct GenerationStatus {
     pub activity: GenerationActivity,
-    pub dirty: DirtyRegion,
+}
+
+impl GenerationStatus {
+    #[must_use]
+    pub const fn is_running(&self) -> bool {
+        matches!(&self.activity, GenerationActivity::Running { .. })
+    }
+}
+
+/// Editable generation parameters which are not active until regeneration
+/// succeeds. This prevents the displayed seed from disagreeing with the
+/// immutable snapshot currently being inspected.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorldGenerationDraft {
+    pub seed: u64,
+}
+
+impl Default for WorldGenerationDraft {
+    fn default() -> Self {
+        Self { seed: 1 }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generation_draft_matches_the_initial_document_seed() {
+        assert_eq!(WorldGenerationDraft::default().seed, 1);
+    }
+
+    #[test]
+    fn only_active_world_generation_disables_regeneration() {
+        assert!(!GenerationStatus::default().is_running());
+        assert!(
+            GenerationStatus {
+                activity: GenerationActivity::Running {
+                    stage: PipelineStage::Tectonics,
+                    completed: 0,
+                    total: 1,
+                },
+            }
+            .is_running()
+        );
+        assert!(
+            !GenerationStatus {
+                activity: GenerationActivity::Failed {
+                    message: "failed".to_owned(),
+                },
+            }
+            .is_running()
+        );
+    }
 }

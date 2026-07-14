@@ -1,6 +1,7 @@
 mod debug_tools;
 mod diagnostics;
-mod editor;
+mod generation;
+mod interaction;
 mod layers;
 #[cfg(feature = "live-debug")]
 mod live_remote;
@@ -32,7 +33,8 @@ fn main() {
         .add_plugins((
             WorldToolsRenderPlugin,
             WorldToolsUiPlugin,
-            editor::WorldEditorPlugin,
+            generation::WorldGenerationPlugin,
+            interaction::WorldInteractionPlugin,
             viewport_bridge::ViewportBridgePlugin,
             debug_tools::WorldToolsDebugPlugin,
         ));

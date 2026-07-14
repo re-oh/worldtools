@@ -85,6 +85,7 @@ pub fn sync_telemetry(
     });
 
     telemetry.streaming = Some(StreamingDiagnostics {
+        world_epoch: stream.world_epoch,
         level: stream.level,
         visible_tiles: stream.visible,
         resident_visible_tiles: stream.resident_visible,
@@ -99,7 +100,6 @@ pub fn sync_telemetry(
         resident_capacity: stream.resident_capacity,
         max_in_flight: stream.max_in_flight,
         ready_results: stream.ready_results,
-        edit_count: stream.edit_count,
     });
 
     telemetry.renderer = Some(RenderDiagnostics {

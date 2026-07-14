@@ -1,18 +1,9 @@
-use bevy::prelude::MessageWriter;
 use bevy_egui::egui::{self, Order, Sense, Vec2};
 use egui_phosphor_icons::{Icon, icons};
 
-use crate::{
-    EditorCommand, EditorUiState, MapViewMode, MapViewport, MapViewportChanged, ViewportRect, style,
-};
+use crate::{EditorUiState, MapViewMode, MapViewport, ViewportRect, style};
 
-pub fn show(
-    root: &mut egui::Ui,
-    editor: &mut EditorUiState,
-    viewport: &mut MapViewport,
-    commands: &mut MessageWriter<EditorCommand>,
-    changes: &mut MessageWriter<MapViewportChanged>,
-) {
+pub fn show(root: &mut egui::Ui, editor: &mut EditorUiState, viewport: &mut MapViewport) {
     let ctx = root.ctx().clone();
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE)
@@ -20,7 +11,7 @@ pub fn show(
             let rect = ui.max_rect();
             let response = ui.allocate_rect(rect, Sense::hover());
             if editor.active_layer == crate::WorldLayer::Elevation {
-                view_selector(&ctx, rect.min + Vec2::splat(8.0), editor, commands);
+                view_selector(&ctx, rect.min + Vec2::splat(8.0), editor);
             } else {
                 active_layer_badge(&ctx, rect.min + Vec2::splat(8.0), editor.active_layer);
             }
@@ -30,24 +21,12 @@ pub fn show(
                 max: [rect.max.x, rect.max.y],
             };
             let physical = logical.physical(pixels_per_point);
-            let changed = viewport.logical != logical
-                || viewport.physical != physical
-                || (viewport.pixels_per_point - pixels_per_point).abs() > f32::EPSILON;
-
             viewport.logical = logical;
             viewport.physical = physical;
             viewport.pixels_per_point = pixels_per_point;
             viewport.hovered = response.hovered();
             viewport.input_blocked = !response.hovered() || ctx.egui_is_using_pointer();
             viewport.frame = viewport.frame.wrapping_add(1);
-
-            if changed {
-                changes.write(MapViewportChanged {
-                    logical,
-                    physical,
-                    pixels_per_point,
-                });
-            }
         });
 }
 
@@ -67,12 +46,7 @@ fn active_layer_badge(ctx: &egui::Context, position: egui::Pos2, layer: crate::W
         });
 }
 
-fn view_selector(
-    ctx: &egui::Context,
-    position: egui::Pos2,
-    editor: &mut EditorUiState,
-    commands: &mut MessageWriter<EditorCommand>,
-) {
+fn view_selector(ctx: &egui::Context, position: egui::Pos2, editor: &mut EditorUiState) {
     egui::Area::new("worldtools_map_view_selector".into())
         .order(Order::Foreground)
         .fixed_pos(position)
@@ -99,7 +73,6 @@ fn view_selector(
                                 .on_hover_text(mode.description());
                             if response.clicked() && !selected {
                                 editor.map_view = mode;
-                                commands.write(EditorCommand::SelectMapView(mode));
                             }
                         }
                     });

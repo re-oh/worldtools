@@ -3,7 +3,8 @@ use bevy_egui::egui::{self, Vec2};
 use egui_phosphor_icons::{Icon, icons};
 
 use crate::{
-    DocumentStatus, EditorCommand, EditorUiState, LayerCapabilities, WorldLayer,
+    DocumentStatus, EditorUiState, GenerationStatus, LayerCapabilities, RegenerateWorld,
+    WorldGenerationDraft, WorldLayer,
     style::{self, BG_PANEL, EXPLORER_WIDTH, TEXT_MUTED},
     widgets,
 };
@@ -12,8 +13,10 @@ pub fn show(
     root: &mut egui::Ui,
     state: &mut EditorUiState,
     document: &DocumentStatus,
+    draft: &mut WorldGenerationDraft,
+    generation: &GenerationStatus,
     capabilities: &LayerCapabilities,
-    commands: &mut MessageWriter<EditorCommand>,
+    regeneration: &mut MessageWriter<RegenerateWorld>,
 ) {
     egui::Panel::left("worldtools_explorer")
         .default_size(EXPLORER_WIDTH)
@@ -33,10 +36,38 @@ pub fn show(
                 .default_open(true)
                 .show(ui, |ui| {
                     ui.label(
-                        egui::RichText::new(format!("seed {}", document.seed))
+                        egui::RichText::new(format!("active seed {}", document.seed))
                             .small()
                             .color(TEXT_MUTED),
                     );
+                    let mut submit = false;
+                    widgets::property_row(ui, "Seed", |ui| {
+                        let response = ui.add(
+                            egui::DragValue::new(&mut draft.seed)
+                                .speed(1.0)
+                                .update_while_editing(false),
+                        );
+                        submit = response.lost_focus()
+                            && ui.input(|input| input.key_pressed(egui::Key::Enter));
+                    });
+                    let busy = generation.is_running();
+                    submit |= ui
+                        .add_enabled(
+                            !busy,
+                            egui::Button::new(format!(
+                                "{} REGENERATE WORLD",
+                                icons::ARROWS_CLOCKWISE.as_str()
+                            )),
+                        )
+                        .on_hover_text(if busy {
+                            "World history generation is running"
+                        } else {
+                            "Rebuild every world-data layer from this seed"
+                        })
+                        .clicked();
+                    if submit && !busy {
+                        regeneration.write(RegenerateWorld { seed: draft.seed });
+                    }
                 });
 
             widgets::section_header(ui, "Data");
@@ -44,7 +75,7 @@ pub fn show(
                 .into_iter()
                 .filter(|layer| capabilities.availability(*layer).is_available())
             {
-                layer_row(ui, state, capabilities, layer, commands);
+                layer_row(ui, state, capabilities, layer);
             }
 
             future_data(ui, capabilities);
@@ -88,7 +119,6 @@ fn layer_row(
     state: &mut EditorUiState,
     capabilities: &LayerCapabilities,
     layer: WorldLayer,
-    commands: &mut MessageWriter<EditorCommand>,
 ) {
     let availability = capabilities.availability(layer);
     ui.horizontal(|ui| {
@@ -110,7 +140,6 @@ fn layer_row(
         };
         if response.clicked() && !selected {
             state.active_layer = layer;
-            commands.write(EditorCommand::SelectLayer(layer));
         }
     });
 }

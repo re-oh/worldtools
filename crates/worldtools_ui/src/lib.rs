@@ -30,14 +30,13 @@ impl Plugin for WorldToolsUiPlugin {
             .init_resource::<LayerCapabilities>()
             .init_resource::<DocumentStatus>()
             .init_resource::<GenerationStatus>()
+            .init_resource::<WorldGenerationDraft>()
             .init_resource::<MapReadout>()
             .init_resource::<MapProbe>()
-            .init_resource::<JobQueue>()
             .init_resource::<AnalysisStatus>()
             .init_resource::<MapViewport>()
-            .add_message::<EditorCommand>()
+            .add_message::<RegenerateWorld>()
             .add_message::<DebugCommand>()
-            .add_message::<MapViewportChanged>()
             .add_systems(EguiPrimaryContextPass, shell::draw_editor_shell);
     }
 }
@@ -45,14 +44,12 @@ impl Plugin for WorldToolsUiPlugin {
 /// Common imports for plugins integrating with the editor shell.
 pub mod prelude {
     pub use crate::{
-        ActiveTool, AnalysisIssue, AnalysisSeverity, AnalysisStatus, BrushFalloff, BrushOperation,
-        BrushSettings, DebugCommand, DebugEvent, DebugEventLevel, DebugEventLog,
-        DebugRenderOptions, DebugTab, DebugTelemetry, DebugUiState, DirtyRegion, DocumentStatus,
-        DrawerTab, EditorCommand, EditorUiState, FrameDiagnostics, GenerationActivity,
-        GenerationScope, GenerationStatus, JobId, JobQueue, JobState, JobSummary,
+        ActiveTool, AnalysisIssue, AnalysisSeverity, AnalysisStatus, DebugCommand, DebugEvent,
+        DebugEventLevel, DebugEventLog, DebugRenderOptions, DebugTab, DebugTelemetry, DebugUiState,
+        DocumentStatus, EditorUiState, FrameDiagnostics, GenerationActivity, GenerationStatus,
         LayerAvailability, LayerCapabilities, LayerProbe, MapProbe, MapReadout, MapViewMode,
-        MapViewport, MapViewportChanged, PipelineStage, ProbeReading, RenderDiagnostics, SaveState,
-        StreamingDiagnostics, TerrainProbe, ViewportDiagnostics, ViewportRect, WorldLayer,
-        WorldToolsUiPlugin,
+        MapViewport, PipelineStage, ProbeReading, RegenerateWorld, RenderDiagnostics,
+        StreamingDiagnostics, TerrainProbe, ViewportDiagnostics, ViewportRect,
+        WorldGenerationDraft, WorldLayer, WorldToolsUiPlugin,
     };
 }

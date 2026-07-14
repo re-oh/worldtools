@@ -88,7 +88,7 @@ fn snapshot_value(context: &SnapshotContext<'_>) -> Value {
     let recent_events = recent_event_values(context.events);
 
     json!({
-        "schema": "worldtools.diagnostic-snapshot.v1",
+        "schema": "worldtools.diagnostic-snapshot.v2",
         "captured_unix_ms": timestamp_millis(),
         "application": {
             "version": env!("CARGO_PKG_VERSION"),
@@ -105,20 +105,11 @@ fn snapshot_value(context: &SnapshotContext<'_>) -> Value {
         "document": {
             "name": context.document.name,
             "seed": context.document.seed,
-            "save_state": format!("{:?}", context.document.save_state),
-            "can_undo": context.document.can_undo,
-            "can_redo": context.document.can_redo,
             "active_tool": context.editor.active_tool.label(),
             "active_layer": context.editor.active_layer.label(),
         },
         "generation": {
             "activity": format!("{:?}", context.generation.activity),
-            "dirty_tiles": context.generation.dirty.tile_count,
-            "dirty_from_stage": context
-                .generation
-                .dirty
-                .from_stage
-                .map(|stage| stage.to_string()),
         },
         "simulation": simulation_value(context.streamer),
         "view": {
@@ -171,8 +162,7 @@ fn layer_values(context: &SnapshotContext<'_>) -> Vec<Value> {
                 "name": layer.label(),
                 "available": availability.is_available(),
                 "reason": availability.reason(),
-                "visible": context.editor.layer_visible(layer),
-                "opacity": context.editor.layer_opacity(layer),
+                "selected": context.editor.active_layer == layer,
             })
         })
         .collect()
@@ -205,11 +195,14 @@ fn simulation_value(streamer: &MapTileStreamer) -> Value {
         "fingerprint": fingerprint_hex(world.fingerprint()),
         "atlas_width": settings.atlas_width,
         "atlas_height": settings.atlas_height,
+        "climate_width": settings.climate_width,
+        "climate_height": settings.climate_height,
         "plate_count": settings.plate_count,
         "hotspot_count": settings.hotspot_count,
         "geological_age_myr": settings.geological_age_myr,
         "erosion_iterations": settings.erosion_iterations,
         "moisture_iterations": settings.moisture_iterations,
+        "glacial_iterations": settings.glacial_iterations,
     })
 }
 
@@ -243,7 +236,7 @@ fn stream_stats_value(stats: &TileStreamStats) -> Value {
         "invalidated": stats.invalidated,
         "last_generation_ms": stats.last_generation_ms,
         "max_generation_ms": stats.max_generation_ms,
-        "edit_count": stats.edit_count,
+        "world_epoch": stats.world_epoch,
     })
 }
 
@@ -269,6 +262,7 @@ fn telemetry_value(telemetry: &DebugTelemetry) -> Value {
             "process_memory_gib": frame.process_memory_gib,
         })),
         "streaming": telemetry.streaming.as_ref().map(|stream| json!({
+            "world_epoch": stream.world_epoch,
             "level": stream.level,
             "visible_tiles": stream.visible_tiles,
             "resident_visible_tiles": stream.resident_visible_tiles,
@@ -281,7 +275,6 @@ fn telemetry_value(telemetry: &DebugTelemetry) -> Value {
             "last_generation_ms": stream.last_generation_ms,
             "max_generation_ms": stream.max_generation_ms,
             "ready_results": stream.ready_results,
-            "edit_count": stream.edit_count,
         })),
         "viewport": telemetry.viewport.as_ref().map(|viewport| json!({
             "center_degrees": viewport.center_degrees,

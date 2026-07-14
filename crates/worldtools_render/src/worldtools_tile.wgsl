@@ -392,6 +392,7 @@ fn hydrology_view(
     let wetness = clamp(data.y, 0.0, 1.0);
     let sediment = 1.0 - exp(-max(data.z, 0.0) / 55.0);
     let erosion = 1.0 - exp(-max(data.w, 0.0) / 140.0);
+    let ice = clamp(-data.w, 0.0, 1.0);
 
     if (relative_height < 0.0) {
         let depth = clamp(-relative_height / 6500.0, 0.0, 1.0);
@@ -412,7 +413,11 @@ fn hydrology_view(
     let river = pow(smoothstep(0.30, 0.82, discharge), 1.35);
     let river_core = smoothstep(0.70, 0.96, discharge);
     let river_color = mix(vec3<f32>(0.025, 0.43, 0.70), vec3<f32>(0.66, 0.93, 0.98), river_core);
-    return mix(color, river_color, river * 0.98);
+    color = mix(color, river_color, river * 0.98);
+    let glacial = smoothstep(0.04, 0.76, ice);
+    let glacial_core = smoothstep(0.52, 0.96, ice);
+    let ice_color = mix(vec3<f32>(0.55, 0.78, 0.86), vec3<f32>(0.94, 0.98, 1.0), glacial_core);
+    return mix(color, ice_color, glacial * 0.94);
 }
 
 fn climate_view(

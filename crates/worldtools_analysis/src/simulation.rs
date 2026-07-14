@@ -265,11 +265,14 @@ mod tests {
             SimulationSettings {
                 atlas_width: 72,
                 atlas_height: 36,
+                climate_width: 36,
+                climate_height: 18,
                 plate_count: 10,
                 hotspot_count: 5,
                 geological_age_myr: 180,
                 erosion_iterations: 3,
                 moisture_iterations: 8,
+                glacial_iterations: 2,
             },
         )
     }

@@ -6,7 +6,7 @@ use bevy::{
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use worldtools_simulation::{WorldDataLayer, WorldSnapshot};
-use worldtools_world::{EditJournal, GeoPoint, TerrainGenerator, TerrainSettings, WorldSeed};
+use worldtools_world::{GeoPoint, TerrainGenerator, TerrainSettings, WorldSeed};
 
 use crate::projection::{
     MAP_TILE_APRON, MAP_TILE_CELLS, MAP_TILE_SAMPLE_COUNT, MAP_TILE_SAMPLES, MapTileId,
@@ -25,18 +25,7 @@ impl MapTileData {
     #[must_use]
     #[allow(clippy::cast_possible_wrap, clippy::cast_precision_loss)] // Level 17 bounds grid indices well inside i64 and exact f64 integers.
     pub fn generate(id: MapTileId, seed: WorldSeed, settings: TerrainSettings) -> Self {
-        Self::generate_inner(id, seed, settings, None)
-    }
-
-    #[must_use]
-    #[allow(clippy::cast_possible_wrap, clippy::cast_precision_loss)] // Level 17 bounds grid indices well inside i64 and exact f64 integers.
-    pub fn generate_with_edits(
-        id: MapTileId,
-        seed: WorldSeed,
-        settings: TerrainSettings,
-        edits: &EditJournal,
-    ) -> Self {
-        Self::generate_inner(id, seed, settings, Some(edits))
+        Self::generate_inner(id, seed, settings)
     }
 
     /// Samples a rendered page from one immutable world-history snapshot.
@@ -46,27 +35,11 @@ impl MapTileData {
         snapshot: &WorldSnapshot,
         layer: WorldDataLayer,
     ) -> Self {
-        Self::generate_from_snapshot_inner(id, snapshot, layer, None)
-    }
-
-    /// Samples a rendered page from a snapshot and applies local elevation edits.
-    #[must_use]
-    pub fn generate_from_snapshot_with_edits(
-        id: MapTileId,
-        snapshot: &WorldSnapshot,
-        layer: WorldDataLayer,
-        edits: &EditJournal,
-    ) -> Self {
-        Self::generate_from_snapshot_inner(id, snapshot, layer, Some(edits))
+        Self::generate_from_snapshot_inner(id, snapshot, layer)
     }
 
     #[allow(clippy::cast_possible_wrap, clippy::cast_precision_loss)] // Level 17 bounds grid indices well inside i64 and exact f64 integers.
-    fn generate_inner(
-        id: MapTileId,
-        seed: WorldSeed,
-        settings: TerrainSettings,
-        edits: Option<&EditJournal>,
-    ) -> Self {
+    fn generate_inner(id: MapTileId, seed: WorldSeed, settings: TerrainSettings) -> Self {
         let generator = TerrainGenerator::new(seed, settings);
         let x_cells = u64::from(id.x_extent()) * u64::from(MAP_TILE_CELLS);
         let y_cells = u64::from(id.y_extent()) * u64::from(MAP_TILE_CELLS);
@@ -85,10 +58,7 @@ impl MapTileData {
                 let global_x = i64::from(id.x) * i64::from(MAP_TILE_CELLS) + local_x;
                 let longitude = -180.0 + 360.0 * global_x as f64 / x_cells as f64;
                 let point = GeoPoint::from_degrees(latitude, longitude);
-                let base = generator.sample_geo(point);
-                let elevation = edits.map_or(base, |journal| {
-                    journal.apply_elevation(point.direction(), base, settings.planet_radius_m)
-                });
+                let elevation = generator.sample_geo(point);
                 range_m[0] = range_m[0].min(elevation);
                 range_m[1] = range_m[1].max(elevation);
                 samples.push(elevation);
@@ -110,14 +80,13 @@ impl MapTileData {
         id: MapTileId,
         snapshot: &WorldSnapshot,
         layer: WorldDataLayer,
-        edits: Option<&EditJournal>,
     ) -> Self {
-        let terrain = snapshot.terrain_settings();
         let x_cells = u64::from(id.x_extent()) * u64::from(MAP_TILE_CELLS);
         let y_cells = u64::from(id.y_extent()) * u64::from(MAP_TILE_CELLS);
         let mut elevation_samples = Vec::with_capacity(MAP_TILE_SAMPLE_COUNT);
         let mut layer_samples = Vec::with_capacity(MAP_TILE_SAMPLE_COUNT);
         let mut range_m = [f32::INFINITY, f32::NEG_INFINITY];
+        let coarse_fallback = id.level == 0;
 
         for storage_y in 0..MAP_TILE_SAMPLES {
             let local_y = i64::from(storage_y) - i64::from(MAP_TILE_APRON);
@@ -130,19 +99,24 @@ impl MapTileData {
                 let global_x = i64::from(id.x) * i64::from(MAP_TILE_CELLS) + local_x;
                 let longitude = -180.0 + 360.0 * global_x as f64 / x_cells as f64;
                 let point = GeoPoint::from_degrees(latitude, longitude);
-                let channels = snapshot.sample_layer(point, layer);
-                let base_elevation = if layer == WorldDataLayer::Elevation {
+                let channels = if coarse_fallback && layer == WorldDataLayer::Elevation {
+                    [
+                        snapshot.sample_atlas_elevation(point),
+                        snapshot.sample_slope(point),
+                        0.0,
+                        1.0,
+                    ]
+                } else {
+                    snapshot.sample_layer(point, layer)
+                };
+                let base_elevation = if coarse_fallback {
+                    snapshot.sample_atlas_elevation(point)
+                } else if layer == WorldDataLayer::Elevation {
                     channels[0]
                 } else {
                     snapshot.sample_elevation(point)
                 };
-                let elevation = edits.map_or(base_elevation, |journal| {
-                    journal.apply_elevation(
-                        point.direction(),
-                        base_elevation,
-                        terrain.planet_radius_m,
-                    )
-                });
+                let elevation = base_elevation;
                 range_m[0] = range_m[0].min(elevation);
                 range_m[1] = range_m[1].max(elevation);
                 elevation_samples.push(elevation);

@@ -163,9 +163,6 @@ fn worldtools_status(
         "document": {
             "name": document.name,
             "seed": document.seed,
-            "save_state": format!("{:?}", document.save_state),
-            "can_undo": document.can_undo,
-            "can_redo": document.can_redo,
         },
         "view": {
             "center": [view.center.x, view.center.y],
@@ -175,11 +172,14 @@ fn worldtools_status(
             "active_layer": streamer.active_layer().label(),
             "revision": snapshot.revision(),
             "atlas": [simulation.atlas_width, simulation.atlas_height],
+            "climate_atlas": [simulation.climate_width, simulation.climate_height],
             "geological_age_myr": simulation.geological_age_myr,
             "erosion_iterations": simulation.erosion_iterations,
             "moisture_iterations": simulation.moisture_iterations,
+            "glacial_iterations": simulation.glacial_iterations,
         },
         "streaming": {
+            "world_epoch": streaming.world_epoch,
             "level": streaming.level,
             "visible": streaming.visible,
             "resident_visible": streaming.resident_visible,
@@ -192,7 +192,6 @@ fn worldtools_status(
             "last_generation_ms": streaming.last_generation_ms,
             "max_generation_ms": streaming.max_generation_ms,
             "ready_results": streaming.ready_results,
-            "edit_count": streaming.edit_count,
         },
         "renderer": {
             "rendered": renderer.rendered,

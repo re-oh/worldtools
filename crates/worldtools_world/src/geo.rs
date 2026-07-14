@@ -115,38 +115,6 @@ pub fn angular_distance(a: DVec3, b: DVec3) -> f64 {
         .acos()
 }
 
-/// Minimum angular distance from `point` to the minor great-circle arc AB.
-#[must_use]
-pub(crate) fn angular_distance_to_arc(point: DVec3, a: DVec3, b: DVec3) -> f64 {
-    let point = normalized_or_x(point);
-    let a = normalized_or_x(a);
-    let b = normalized_or_x(b);
-    let arc_length = angular_distance(a, b);
-    let normal = a.cross(b);
-
-    if normal.length_squared() <= DIRECTION_EPSILON || arc_length >= std::f64::consts::PI - 1.0e-10
-    {
-        return angular_distance(point, a).min(angular_distance(point, b));
-    }
-
-    let normal = normal.normalize();
-    let projected = point - normal * point.dot(normal);
-    if projected.length_squared() <= DIRECTION_EPSILON {
-        return angular_distance(point, a).min(angular_distance(point, b));
-    }
-
-    let projected = projected.normalize();
-    let opposite = -projected;
-    for candidate in [projected, opposite] {
-        let split = angular_distance(a, candidate) + angular_distance(candidate, b);
-        if split <= arc_length + 1.0e-10 {
-            return angular_distance(point, candidate);
-        }
-    }
-
-    angular_distance(point, a).min(angular_distance(point, b))
-}
-
 fn normalized_or_x(direction: DVec3) -> DVec3 {
     if direction.is_finite() && direction.length_squared() > DIRECTION_EPSILON {
         direction.normalize()

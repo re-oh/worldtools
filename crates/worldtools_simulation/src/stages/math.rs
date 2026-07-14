@@ -26,6 +26,10 @@ impl Vec3 {
         Self::new(self.x * factor, self.y * factor, self.z * factor)
     }
 
+    pub(crate) fn add(self, other: Self) -> Self {
+        Self::new(self.x + other.x, self.y + other.y, self.z + other.z)
+    }
+
     pub(crate) fn sub(self, other: Self) -> Self {
         Self::new(self.x - other.x, self.y - other.y, self.z - other.z)
     }
@@ -37,6 +41,15 @@ impl Vec3 {
         } else {
             Self::new(1.0, 0.0, 0.0)
         }
+    }
+
+    pub(crate) fn rotate_about(self, axis: Self, angle: f64) -> Self {
+        let axis = axis.normalized();
+        let (sin, cos) = angle.sin_cos();
+        self.scale(cos)
+            .add(axis.cross(self).scale(sin))
+            .add(axis.scale(axis.dot(self) * (1.0 - cos)))
+            .normalized()
     }
 }
 

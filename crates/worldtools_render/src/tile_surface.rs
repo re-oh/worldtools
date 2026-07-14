@@ -130,6 +130,7 @@ fn sync_surfaces(
     mut gpu_tiles: ResMut<GpuTileCache>,
     mut rendered: ResMut<RenderedTiles>,
     mut stats: ResMut<TileRenderStats>,
+    mut rendered_epoch: Local<u64>,
 ) {
     let Ok(window) = windows.single() else {
         return;
@@ -143,6 +144,18 @@ fn sync_surfaces(
     };
     let mut active = HashSet::with_capacity(visible.0.placements.len());
     let mut next_stats = TileRenderStats::default();
+
+    if *rendered_epoch != streamer.world_epoch() {
+        for (_, tile) in rendered.0.drain() {
+            commands.entity(tile.entity).despawn();
+            materials.remove(&tile.material);
+        }
+        for (_, tile) in gpu_tiles.0.drain() {
+            images.remove(&tile.elevation);
+            images.remove(&tile.layer);
+        }
+        *rendered_epoch = streamer.world_epoch();
+    }
 
     for &placement in &visible.0.placements {
         active.insert(placement);

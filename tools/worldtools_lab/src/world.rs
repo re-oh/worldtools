@@ -72,11 +72,14 @@ pub fn world(arguments: &WorldArgs) -> Result<()> {
     let settings = SimulationSettings {
         atlas_width: arguments.width,
         atlas_height: arguments.height,
+        climate_width: (arguments.width / 4).max(16),
+        climate_height: (arguments.height / 4).max(8),
         plate_count: arguments.plates,
         hotspot_count: arguments.hotspots,
         geological_age_myr: arguments.geological_age_myr,
         erosion_iterations: arguments.erosion_iterations,
         moisture_iterations: arguments.moisture_iterations,
+        glacial_iterations: 8,
     };
     let started = Instant::now();
     let snapshot = WorldSnapshot::generate(
@@ -176,11 +179,14 @@ mod tests {
         let settings = SimulationSettings {
             atlas_width: 32,
             atlas_height: 16,
+            climate_width: 16,
+            climate_height: 8,
             plate_count: 4,
             hotspot_count: 1,
             geological_age_myr: 40,
             erosion_iterations: 1,
             moisture_iterations: 4,
+            glacial_iterations: 1,
         };
         let snapshot = WorldSnapshot::generate(WorldSeed(4), TerrainSettings::default(), settings);
         let summary = summarize(4, 0.0, &snapshot);

@@ -1,34 +1,21 @@
 use bevy::prelude::Message;
 
-use super::{
-    ActiveTool, BrushSettings, GenerationScope, JobId, MapViewMode, ViewportRect, WorldLayer,
-};
-
-#[derive(Message, Debug, Clone, PartialEq)]
-pub enum EditorCommand {
-    NewWorld,
-    OpenWorld,
-    SaveWorld,
-    SaveWorldAs,
-    Undo,
-    Redo,
-    OpenPreferences,
-    SelectTool(ActiveTool),
-    SelectMapView(MapViewMode),
-    SelectLayer(WorldLayer),
-    SetLayerVisibility { layer: WorldLayer, visible: bool },
-    SetLayerOpacity { layer: WorldLayer, opacity: f32 },
-    UpdateBrush(BrushSettings),
-    SetAutoRebuild(bool),
-    Generate(GenerationScope),
-    CancelJob(JobId),
-    FocusDirtyRegion,
-    ClearLayerEdits(WorldLayer),
+/// Requests a complete, deterministic world-history rebuild for `seed`.
+///
+/// The application owns generation and updates the active document only after
+/// the replacement snapshot is ready.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RegenerateWorld {
+    pub seed: u64,
 }
 
-#[derive(Message, Debug, Clone, Copy, PartialEq)]
-pub struct MapViewportChanged {
-    pub logical: ViewportRect,
-    pub physical: ViewportRect,
-    pub pixels_per_point: f32,
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn regeneration_request_preserves_the_full_seed() {
+        let request = RegenerateWorld { seed: u64::MAX };
+        assert_eq!(request.seed, u64::MAX);
+    }
 }

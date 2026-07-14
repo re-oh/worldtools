@@ -59,6 +59,14 @@ pub(crate) fn evolve_surface_geology(
                 6
             } else if sediment_m[index] > 18.0 {
                 2
+            } else if tectonics.metamorphic_grade[index] > 0.48
+                || (tectonics.suture[index] > 0.62 && tectonics.crust[index] != 0)
+            {
+                5
+            } else if tectonics.crust_thickness_km[index] > 48.0
+                && hydrology.erosion_m[index] > 28.0
+            {
+                4
             } else {
                 tectonics.lithology[index]
             }

@@ -2,7 +2,7 @@ use worldtools_world::{TerrainSettings, WorldSeed};
 
 use crate::{
     AtlasGrid,
-    layers::{Lithology, ResourceDeposit, SoilKind},
+    layers::{BoundaryKind, Lithology, ResourceDeposit, SoilKind},
     random::hash_unit,
     stages::{
         climate::ClimateState,
@@ -393,6 +393,16 @@ fn process_scores(
     let arid = smoothstep(0.62, 0.9, climate.aridity[index]);
     let slope = grid.slope(&tectonics.elevation_m, index, terrain.planet_radius_m);
     let stable = 1.0 - tectonics.boundary[index];
+    let boundary_kind = BoundaryKind::from_byte(tectonics.boundary_kind[index]);
+    let subduction_arc = f32::from(matches!(
+        boundary_kind,
+        BoundaryKind::SubductionArc | BoundaryKind::IslandArc
+    ));
+    let extensional_margin = f32::from(matches!(
+        boundary_kind,
+        BoundaryKind::OceanRidge | BoundaryKind::ContinentalRift
+    ));
+    let inherited_orogen = tectonics.suture[index] * tectonics.metamorphic_grade[index];
     let ocean = tectonics.elevation_m[index] <= terrain.sea_level_m;
     let shallow_marine = smoothstep(
         terrain.sea_level_m - 650.0,
@@ -512,9 +522,10 @@ fn process_scores(
         0.0
     };
 
-    let orogenic_gold = (tectonics.convergence[index] * 0.72
-        + tectonics.boundary[index] * 0.18
-        + tectonics.volcanism[index] * 0.10)
+    let orogenic_gold = (tectonics.convergence[index] * 0.50
+        + inherited_orogen * 0.36
+        + tectonics.shear[index] * 0.08
+        + tectonics.volcanism[index] * 0.06)
         * metamorphic_belt;
     let placer_gold = hydrology.river_strength[index].powf(1.35)
         * smoothstep(0.4, 24.0, hydrology.sediment_m[index])
@@ -529,13 +540,21 @@ fn process_scores(
             * f32::from(lithology == Lithology::FelsicCraton)
             * stable,
         bauxite_host,
-        tectonics.convergence[index].powf(1.25) * tectonics.volcanism[index] * arc_or_pluton,
+        tectonics.convergence[index].powf(1.15)
+            * tectonics.volcanism[index]
+            * subduction_arc
+            * arc_or_pluton,
         tectonics.divergence[index].powf(1.3)
             * tectonics.volcanism[index]
+            * extensional_margin
             * f32::from(ocean || lithology == Lithology::OceanicBasalt),
-        tectonics.volcanism[index] * mafic_host * (0.45 + tectonics.boundary[index] * 0.55),
+        tectonics.volcanism[index]
+            * mafic_host
+            * (0.35 + extensional_margin * 0.35 + tectonics.boundary[index] * 0.30),
         orogenic_gold.max(placer_gold),
-        smoothstep(400.0, 2_800.0, tectonics.uplift_m[index].abs())
+        (smoothstep(400.0, 2_800.0, tectonics.uplift_m[index].abs()) * 0.55
+            + tectonics.metamorphic_grade[index] * 0.30
+            + tectonics.suture[index] * 0.15)
             * f32::from(matches!(
                 lithology,
                 Lithology::Metamorphic | Lithology::Plutonic

@@ -6,26 +6,33 @@ use worldtools_world::{GeoPoint, TerrainGenerator, TerrainSettings, WorldSeed};
 use crate::{
     AtlasGrid, SimulationSettings,
     layers::{
-        Biome, ClimateSample, CrustKind, GeologySample, HydrologySample, KoppenZone, Lithology,
-        ResourceDeposit, ResourcesSample, SoilKind, SoilSample, TectonicsSample, VegetationSample,
-        WorldDataLayer, WorldSample,
+        Biome, BoundaryKind, ClimateSample, CrustKind, GeologySample, HydrologySample, KoppenZone,
+        Lithology, ResourceDeposit, ResourcesSample, SoilKind, SoilSample, TectonicsSample,
+        VegetationSample, WorldDataLayer, WorldSample,
     },
     stages::{
         evolve_surface_geology, refresh_hydrology, simulate_climate, simulate_ecology,
-        simulate_hydrology, simulate_resources, simulate_tectonics,
+        simulate_glaciation, simulate_hydrology, simulate_resources, simulate_tectonics,
     },
 };
 
-const SNAPSHOT_VERSION: &str = "worldtools.simulation.snapshot.v1";
+const SNAPSHOT_VERSION: &str = "worldtools.simulation.snapshot.v3";
 
 #[derive(Debug, Clone)]
 struct TectonicAtlas {
     plate_id: Arc<[u16]>,
+    paleo_plate_id: Arc<[u16]>,
+    terrane_id: Arc<[u16]>,
     crust: Arc<[u8]>,
+    boundary_kind: Arc<[u8]>,
     crust_age_myr: Arc<[f32]>,
+    crust_thickness_km: Arc<[f32]>,
     boundary: Arc<[f32]>,
     convergence: Arc<[f32]>,
     divergence: Arc<[f32]>,
+    shear: Arc<[f32]>,
+    suture: Arc<[f32]>,
+    metamorphic_grade: Arc<[f32]>,
     volcanism: Arc<[f32]>,
     uplift_m: Arc<[f32]>,
 }
@@ -38,6 +45,12 @@ struct HydrologyAtlas {
     lake: Arc<[f32]>,
     erosion_m: Arc<[f32]>,
     sediment_m: Arc<[f32]>,
+    maximum_ice_fraction: Arc<[f32]>,
+    ice_flux: Arc<[f32]>,
+    glacial_erosion_m: Arc<[f32]>,
+    till_m: Arc<[f32]>,
+    outwash_m: Arc<[f32]>,
+    isostatic_rebound_m: Arc<[f32]>,
 }
 
 #[derive(Debug, Clone)]
@@ -155,7 +168,23 @@ impl WorldSnapshot {
             &provisional_climate,
             &mut tectonics,
         );
-        let climate = simulate_climate(
+        let mut climate = simulate_climate(
+            grid,
+            seed,
+            terrain_settings,
+            simulation_settings,
+            &tectonics,
+        );
+        refresh_hydrology(grid, terrain_settings, &climate, &tectonics, &mut hydrology);
+        let glaciation = simulate_glaciation(
+            grid,
+            terrain_settings,
+            simulation_settings,
+            &mut tectonics,
+            &climate,
+            &mut hydrology,
+        );
+        climate = simulate_climate(
             grid,
             seed,
             terrain_settings,
@@ -219,11 +248,18 @@ impl WorldSnapshot {
             slope: slope.into(),
             tectonics: TectonicAtlas {
                 plate_id: tectonics.plate_id.into(),
+                paleo_plate_id: tectonics.paleo_plate_id.into(),
+                terrane_id: tectonics.terrane_id.into(),
                 crust: tectonics.crust.into(),
+                boundary_kind: tectonics.boundary_kind.into(),
                 crust_age_myr: tectonics.crust_age_myr.into(),
+                crust_thickness_km: tectonics.crust_thickness_km.into(),
                 boundary: tectonics.boundary.into(),
                 convergence: tectonics.convergence.into(),
                 divergence: tectonics.divergence.into(),
+                shear: tectonics.shear.into(),
+                suture: tectonics.suture.into(),
+                metamorphic_grade: tectonics.metamorphic_grade.into(),
                 volcanism: tectonics.volcanism.into(),
                 uplift_m: tectonics.uplift_m.into(),
             },
@@ -234,6 +270,12 @@ impl WorldSnapshot {
                 lake: hydrology.lake.into(),
                 erosion_m: hydrology.erosion_m.into(),
                 sediment_m: hydrology.sediment_m.into(),
+                maximum_ice_fraction: glaciation.maximum_ice_fraction.into(),
+                ice_flux: glaciation.ice_flux.into(),
+                glacial_erosion_m: glaciation.erosion_m.into(),
+                till_m: glaciation.till_m.into(),
+                outwash_m: glaciation.outwash_m.into(),
+                isostatic_rebound_m: glaciation.rebound_m.into(),
             },
             climate: ClimateAtlas {
                 zone: climate.zone.into(),
@@ -323,6 +365,18 @@ impl WorldSnapshot {
         detailed_baseline + (evolved_atlas - atlas_baseline)
     }
 
+    /// Samples the evolved simulation surface without adding sub-atlas terrain detail.
+    /// This is intended for low-resolution fallback pages during initial streaming.
+    #[must_use]
+    pub fn sample_atlas_elevation(&self, point: GeoPoint) -> f32 {
+        self.grid.sample_scalar(&self.elevation_m, point)
+    }
+
+    #[must_use]
+    pub fn sample_slope(&self, point: GeoPoint) -> f32 {
+        self.grid.sample_scalar(&self.slope, point)
+    }
+
     #[must_use]
     pub fn shared(self) -> Arc<Self> {
         Arc::new(self)
@@ -337,11 +391,18 @@ impl WorldSnapshot {
             slope: scalar(&self.slope),
             tectonics: TectonicsSample {
                 plate_id: self.tectonics.plate_id[nearest],
+                paleo_plate_id: self.tectonics.paleo_plate_id[nearest],
+                terrane_id: self.tectonics.terrane_id[nearest],
                 crust: CrustKind::from_byte(self.tectonics.crust[nearest]),
+                boundary_kind: BoundaryKind::from_byte(self.tectonics.boundary_kind[nearest]),
                 crust_age_myr: scalar(&self.tectonics.crust_age_myr),
+                crust_thickness_km: scalar(&self.tectonics.crust_thickness_km),
                 boundary: scalar(&self.tectonics.boundary),
                 convergence: scalar(&self.tectonics.convergence),
                 divergence: scalar(&self.tectonics.divergence),
+                shear: scalar(&self.tectonics.shear),
+                suture: scalar(&self.tectonics.suture),
+                metamorphic_grade: scalar(&self.tectonics.metamorphic_grade),
                 volcanism: scalar(&self.tectonics.volcanism),
                 uplift_m: scalar(&self.tectonics.uplift_m),
             },
@@ -352,6 +413,12 @@ impl WorldSnapshot {
                 lake: scalar(&self.hydrology.lake),
                 erosion_m: scalar(&self.hydrology.erosion_m),
                 sediment_m: scalar(&self.hydrology.sediment_m),
+                maximum_ice_fraction: scalar(&self.hydrology.maximum_ice_fraction),
+                ice_flux: scalar(&self.hydrology.ice_flux),
+                glacial_erosion_m: scalar(&self.hydrology.glacial_erosion_m),
+                till_m: scalar(&self.hydrology.till_m),
+                outwash_m: scalar(&self.hydrology.outwash_m),
+                isostatic_rebound_m: scalar(&self.hydrology.isostatic_rebound_m),
             },
             climate: ClimateSample {
                 zone: KoppenZone::from_byte(self.climate.zone[nearest]),
@@ -415,7 +482,11 @@ impl WorldSnapshot {
                 scalar(&self.hydrology.river_strength),
                 scalar(&self.hydrology.wetness).max(scalar(&self.hydrology.lake)),
                 scalar(&self.hydrology.sediment_m),
-                scalar(&self.hydrology.erosion_m),
+                if scalar(&self.hydrology.maximum_ice_fraction) > 0.02 {
+                    -scalar(&self.hydrology.maximum_ice_fraction)
+                } else {
+                    scalar(&self.hydrology.erosion_m)
+                },
             ],
             WorldDataLayer::Climate => [
                 scalar(&self.climate.temperature_c),
@@ -471,11 +542,14 @@ mod tests {
         SimulationSettings {
             atlas_width: 72,
             atlas_height: 36,
+            climate_width: 36,
+            climate_height: 18,
             plate_count: 10,
             hotspot_count: 5,
             geological_age_myr: 180,
             erosion_iterations: 3,
             moisture_iterations: 8,
+            glacial_iterations: 2,
         }
     }
 

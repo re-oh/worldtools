@@ -9,22 +9,15 @@ use crate::{seed::WorldSeed, terrain::TerrainTile, tile::TileId};
 pub struct TileCacheKey {
     pub world_seed: WorldSeed,
     pub terrain_fingerprint: [u8; 32],
-    pub edit_fingerprint: u64,
     pub tile: TileId,
 }
 
 impl TileCacheKey {
     #[must_use]
-    pub const fn new(
-        world_seed: WorldSeed,
-        terrain_fingerprint: [u8; 32],
-        edit_fingerprint: u64,
-        tile: TileId,
-    ) -> Self {
+    pub const fn new(world_seed: WorldSeed, terrain_fingerprint: [u8; 32], tile: TileId) -> Self {
         Self {
             world_seed,
             terrain_fingerprint,
-            edit_fingerprint,
             tile,
         }
     }
@@ -92,7 +85,7 @@ mod tests {
         let seed = WorldSeed(17);
         let settings = TerrainSettings::default();
         let id = TileId::root(CubeFace::PositiveX);
-        let key = TileCacheKey::new(seed, settings.fingerprint(), 0, id);
+        let key = TileCacheKey::new(seed, settings.fingerprint(), id);
         let tile = Arc::new(TerrainGenerator::new(seed, settings).generate(id));
         let cache = TerrainTileCache::with_capacity_bytes(2 * tile.byte_len() as u64);
 

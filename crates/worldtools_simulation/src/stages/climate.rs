@@ -3,7 +3,13 @@ use worldtools_world::{TerrainSettings, WorldSeed};
 
 use crate::{
     AtlasGrid, SimulationSettings,
-    stages::{math::smoothstep, tectonics::TectonicState},
+    stages::{
+        math::smoothstep,
+        multires::{
+            apply_lapse_rate, apply_orographic_precipitation, downsample_surface, upsample_scalar,
+        },
+        tectonics::TectonicState,
+    },
 };
 
 #[derive(Debug)]
@@ -20,17 +26,101 @@ pub(crate) struct ClimateState {
 #[allow(clippy::too_many_lines)] // Atmospheric fields are produced together to preserve their shared circulation state.
 pub(crate) fn simulate(
     grid: AtlasGrid,
-    _seed: WorldSeed,
+    seed: WorldSeed,
     terrain: TerrainSettings,
     settings: SimulationSettings,
     tectonics: &TectonicState,
 ) -> ClimateState {
+    let climate_grid = AtlasGrid::new(settings.climate_width, settings.climate_height);
+    if climate_grid == grid {
+        return simulate_grid(grid, seed, terrain, settings, &tectonics.elevation_m);
+    }
+
+    let surface = downsample_surface(
+        grid,
+        climate_grid,
+        &tectonics.elevation_m,
+        terrain.sea_level_m,
+    );
+    let climate_elevation = surface
+        .mean_elevation_m
+        .iter()
+        .zip(&surface.barrier_elevation_m)
+        .zip(&surface.land_fraction)
+        .map(|((&mean, &barrier), &land_fraction)| {
+            let mountain_signal = (barrier - mean).max(0.0) * 0.16;
+            let resolved = mean + mountain_signal;
+            if land_fraction < 0.28 {
+                resolved.min(terrain.sea_level_m - 20.0)
+            } else if land_fraction > 0.72 {
+                resolved.max(terrain.sea_level_m + 20.0)
+            } else {
+                resolved
+            }
+        })
+        .collect::<Vec<_>>();
+    let coarse = simulate_grid(climate_grid, seed, terrain, settings, &climate_elevation);
+    let reference_elevation = upsample_scalar(climate_grid, grid, &surface.mean_elevation_m);
+    let temperature_c = apply_lapse_rate(
+        &upsample_scalar(climate_grid, grid, &coarse.temperature_c),
+        &tectonics.elevation_m,
+        &reference_elevation,
+        0.0063,
+    );
+    let seasonality = upsample_scalar(climate_grid, grid, &coarse.seasonality);
+    let wind_east = upsample_scalar(climate_grid, grid, &coarse.wind_east);
+    let wind_north = upsample_scalar(climate_grid, grid, &coarse.wind_north);
+    let precipitation_mm = apply_orographic_precipitation(
+        grid,
+        terrain.planet_radius_m,
+        &upsample_scalar(climate_grid, grid, &coarse.precipitation_mm),
+        &tectonics.elevation_m,
+        &wind_east,
+        &wind_north,
+    );
     let ocean = tectonics
         .elevation_m
         .iter()
         .map(|&elevation| elevation <= terrain.sea_level_m)
         .collect::<Vec<_>>();
+    let (aridity, zone) = classify_climate(
+        &ocean,
+        &temperature_c,
+        &precipitation_mm,
+        &seasonality,
+        &wind_east,
+        &wind_north,
+    );
+
+    ClimateState {
+        zone,
+        temperature_c,
+        precipitation_mm,
+        seasonality,
+        wind_east,
+        wind_north,
+        aridity,
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn simulate_grid(
+    grid: AtlasGrid,
+    seed: WorldSeed,
+    terrain: TerrainSettings,
+    settings: SimulationSettings,
+    elevation_m: &[f32],
+) -> ClimateState {
+    let ocean = elevation_m
+        .iter()
+        .map(|&elevation| elevation <= terrain.sea_level_m)
+        .collect::<Vec<_>>();
     let continental_distance = continental_distance(grid, &ocean);
+    let grid_height = f32::from(u16::try_from(grid.height()).expect("climate height fits u16"));
+    let inland_scale = (grid_height * 0.125).max(2.0);
+    let phase = f64::from(seed.key("simulation.climate.wave.v1").noise_seed())
+        / f64::from(i32::MAX)
+        * std::f64::consts::PI;
 
     let atmospheric = (0..grid.len())
         .into_par_iter()
@@ -40,8 +130,8 @@ pub(crate) fn simulate(
             let latitude = point.latitude as f32;
             let absolute_latitude = latitude.abs();
             let latitude_degrees = absolute_latitude.to_degrees();
-            let elevation_above_sea = (tectonics.elevation_m[index] - terrain.sea_level_m).max(0.0);
-            let inland = (continental_distance[index] / 24.0).clamp(0.0, 1.0);
+            let elevation_above_sea = (elevation_m[index] - terrain.sea_level_m).max(0.0);
+            let inland = (continental_distance[index] / inland_scale).clamp(0.0, 1.0);
 
             // Annual mean temperature is controlled by insolation, elevation and
             // continentality. The 6.3 K/km lapse rate is deliberately a little
@@ -64,7 +154,8 @@ pub(crate) fn simulate(
             let zonal = -trades + westerlies - polar_easterlies * 0.62;
             let hemisphere = latitude.signum();
             #[allow(clippy::cast_possible_truncation)]
-            let planetary_wave = (point.longitude * 2.0 + f64::from(latitude) * 1.5).sin() as f32;
+            let planetary_wave =
+                (point.longitude * 2.0 + f64::from(latitude) * 1.5 + phase).sin() as f32;
             let hadley_meridional = -hemisphere * trades * 0.24;
             let ferrel_meridional = hemisphere * westerlies * 0.12;
             let polar_meridional = -hemisphere * polar_easterlies * 0.10;
@@ -92,7 +183,7 @@ pub(crate) fn simulate(
     let precipitation_mm = advect_moisture(
         grid,
         settings.moisture_iterations,
-        &tectonics.elevation_m,
+        elevation_m,
         terrain.sea_level_m,
         &ocean,
         &temperature_c,
@@ -100,7 +191,35 @@ pub(crate) fn simulate(
         &wind_north,
     );
 
-    let aridity = (0..grid.len())
+    let (aridity, zone) = classify_climate(
+        &ocean,
+        &temperature_c,
+        &precipitation_mm,
+        &seasonality,
+        &wind_east,
+        &wind_north,
+    );
+
+    ClimateState {
+        zone,
+        temperature_c,
+        precipitation_mm,
+        seasonality,
+        wind_east,
+        wind_north,
+        aridity,
+    }
+}
+
+fn classify_climate(
+    ocean: &[bool],
+    temperature_c: &[f32],
+    precipitation_mm: &[f32],
+    seasonality: &[f32],
+    wind_east: &[f32],
+    wind_north: &[f32],
+) -> (Vec<f32>, Vec<u8>) {
+    let aridity = (0..ocean.len())
         .into_par_iter()
         .map(|index| {
             let temperature = temperature_c[index];
@@ -112,7 +231,7 @@ pub(crate) fn simulate(
             (potential_evaporation / (precipitation + potential_evaporation)).clamp(0.0, 1.0)
         })
         .collect::<Vec<_>>();
-    let zone = (0..grid.len())
+    let zone = (0..ocean.len())
         .into_par_iter()
         .map(|index| {
             if ocean[index] {
@@ -133,15 +252,7 @@ pub(crate) fn simulate(
         })
         .collect();
 
-    ClimateState {
-        zone,
-        temperature_c,
-        precipitation_mm,
-        seasonality,
-        wind_east,
-        wind_north,
-        aridity,
-    }
+    (aridity, zone)
 }
 
 fn continental_distance(grid: AtlasGrid, ocean: &[bool]) -> Vec<f32> {
@@ -150,7 +261,8 @@ fn continental_distance(grid: AtlasGrid, ocean: &[bool]) -> Vec<f32> {
         .map(|&is_ocean| if is_ocean { 0.0_f32 } else { 64.0 })
         .collect::<Vec<_>>();
     let mut next = distance.clone();
-    for _ in 0..48 {
+    let iterations = (grid.height() / 4).max(4);
+    for _ in 0..iterations {
         for index in 0..grid.len() {
             let nearest = grid
                 .cardinal_neighbors(index)

@@ -8,10 +8,7 @@ use bevy::{prelude::*, tasks::AsyncComputeTaskPool, window::PrimaryWindow};
 use crossbeam_channel::{Receiver, Sender, TryRecvError, bounded};
 use moka::sync::Cache;
 use worldtools_simulation::{SimulationSettings, WorldDataLayer, WorldSample, WorldSnapshot};
-use worldtools_world::{
-    EditId, EditJournal, EditJournalError, EditRevision, GeoPoint, TerrainEdit, TerrainSettings,
-    WorldSeed,
-};
+use worldtools_world::{GeoPoint, TerrainSettings, WorldSeed};
 
 use crate::{
     debug::RenderDebugSettings,
@@ -43,7 +40,7 @@ pub struct TileStreamStats {
     pub resident_capacity: u64,
     pub max_in_flight: usize,
     pub ready_results: usize,
-    pub edit_count: usize,
+    pub world_epoch: u64,
 }
 
 #[derive(Clone, Debug, Message)]
@@ -55,7 +52,7 @@ pub struct MapTileInvalidation {
 pub struct MapTileStreamer {
     snapshot: Arc<WorldSnapshot>,
     active_layer: WorldDataLayer,
-    edits: EditJournal,
+    world_epoch: u64,
     cache: Cache<MapTileId, Arc<MapTileData>>,
     in_flight: HashSet<MapTileId>,
     revisions: HashMap<MapTileId, u64>,
@@ -108,7 +105,7 @@ impl MapTileStreamer {
         Self {
             snapshot,
             active_layer: WorldDataLayer::Elevation,
-            edits: EditJournal::new(),
+            world_epoch: 0,
             cache: Cache::builder().max_capacity(MAX_RESIDENT_TILES).build(),
             in_flight: HashSet::new(),
             revisions: HashMap::new(),
@@ -132,6 +129,30 @@ impl MapTileStreamer {
     #[must_use]
     pub const fn active_layer(&self) -> WorldDataLayer {
         self.active_layer
+    }
+
+    #[must_use]
+    pub const fn world_epoch(&self) -> u64 {
+        self.world_epoch
+    }
+
+    /// Atomically installs a generated world and discards every page and result
+    /// channel owned by the previous snapshot.
+    pub fn replace_snapshot(&mut self, snapshot: Arc<WorldSnapshot>) {
+        let (sender, receiver) = bounded(MAX_IN_FLIGHT * 2);
+        self.snapshot = snapshot;
+        self.world_epoch = self.world_epoch.wrapping_add(1);
+        self.cache = Cache::builder().max_capacity(MAX_RESIDENT_TILES).build();
+        self.in_flight.clear();
+        self.revisions.clear();
+        self.sender = sender;
+        self.receiver = receiver;
+        self.completed = 0;
+        self.discarded = 0;
+        self.requested = 0;
+        self.invalidated = 0;
+        self.last_generation = Duration::ZERO;
+        self.max_generation = Duration::ZERO;
     }
 
     /// Selects the dataset generated into future tile pages.
@@ -212,71 +233,6 @@ impl MapTileStreamer {
         }
     }
 
-    pub fn allocate_edit_id(&mut self) -> EditId {
-        self.edits.allocate_id()
-    }
-
-    /// Inserts an edit and invalidates only resident or running pages whose
-    /// spherical bounds intersect it.
-    ///
-    /// # Errors
-    /// Returns [`EditJournalError`] when the edit identifier already exists.
-    pub fn insert_edit(
-        &mut self,
-        edit: TerrainEdit,
-    ) -> Result<(EditRevision, usize), EditJournalError> {
-        let affected = self.tiles_intersecting(&edit);
-        let revision = self.edits.insert(edit)?;
-        let count = self.invalidate_ids(affected);
-        if self.trace_streaming {
-            tracing::debug!(
-                target: "worldtools_render::streaming",
-                edit_revision = revision.0,
-                affected_tiles = count,
-                edit_count = self.edits.edits().len(),
-                "terrain edit inserted"
-            );
-        }
-        Ok((revision, count))
-    }
-
-    pub fn remove_edit(&mut self, id: EditId) -> Option<(TerrainEdit, usize)> {
-        let edit = self.edits.remove(id)?;
-        let affected = self.tiles_intersecting(&edit);
-        let count = self.invalidate_ids(affected);
-        if self.trace_streaming {
-            tracing::debug!(
-                target: "worldtools_render::streaming",
-                affected_tiles = count,
-                edit_count = self.edits.edits().len(),
-                "terrain edit removed"
-            );
-        }
-        Some((edit, count))
-    }
-
-    pub fn clear_edits(&mut self) -> usize {
-        if self.edits.edits().is_empty() {
-            return 0;
-        }
-        self.edits.clear();
-        let ids = self
-            .cache
-            .iter()
-            .map(|(id, _)| *id)
-            .chain(self.in_flight.iter().copied())
-            .collect::<HashSet<_>>();
-        let count = self.invalidate_tiles(ids);
-        if self.trace_streaming {
-            tracing::debug!(
-                target: "worldtools_render::streaming",
-                affected_tiles = count,
-                "terrain edits cleared"
-            );
-        }
-        count
-    }
-
     pub fn invalidate_tiles(&mut self, ids: impl IntoIterator<Item = MapTileId>) -> usize {
         self.invalidate_ids(ids.into_iter().collect::<HashSet<_>>())
     }
@@ -293,39 +249,12 @@ impl MapTileStreamer {
 
     #[must_use]
     pub fn sample_elevation(&self, point: GeoPoint) -> f32 {
-        let base = self.snapshot.sample_elevation(point);
-        self.edits.apply_elevation(
-            point.direction(),
-            base,
-            self.snapshot.terrain_settings().planet_radius_m,
-        )
+        self.snapshot.sample_elevation(point)
     }
 
     #[must_use]
     pub fn sample_world(&self, point: GeoPoint) -> WorldSample {
-        let mut sample = self.snapshot.sample(point);
-        sample.elevation_m = self.edits.apply_elevation(
-            point.direction(),
-            sample.elevation_m,
-            self.snapshot.terrain_settings().planet_radius_m,
-        );
-        sample
-    }
-
-    fn tiles_intersecting(&self, edit: &TerrainEdit) -> HashSet<MapTileId> {
-        self.cache
-            .iter()
-            .map(|(id, _)| *id)
-            .chain(self.in_flight.iter().copied())
-            .filter(|id| {
-                let (center, radius) = id.bounding_cap();
-                edit.might_affect_cap(
-                    center.direction(),
-                    radius,
-                    self.snapshot.terrain_settings().planet_radius_m,
-                )
-            })
-            .collect()
+        self.snapshot.sample(point)
     }
 
     fn invalidate_ids(&mut self, ids: impl IntoIterator<Item = MapTileId>) -> usize {
@@ -359,7 +288,6 @@ impl MapTileStreamer {
         let revision = self.revisions.get(&id).copied().unwrap_or_default();
         let snapshot = Arc::clone(&self.snapshot);
         let layer = self.active_layer;
-        let edits = self.edits.clone();
         let sender = self.sender.clone();
         let trace_streaming = self.trace_streaming;
         self.requested = self.requested.saturating_add(1);
@@ -388,9 +316,7 @@ impl MapTileStreamer {
                     revision
                 );
                 let _guard = trace_streaming.then(|| span.enter());
-                let data = Arc::new(MapTileData::generate_from_snapshot_with_edits(
-                    id, &snapshot, layer, &edits,
-                ));
+                let data = Arc::new(MapTileData::generate_from_snapshot(id, &snapshot, layer));
                 let generated_in = started.elapsed();
                 if trace_streaming {
                     tracing::debug!(
@@ -606,7 +532,7 @@ fn request_tiles(
     stats.resident_capacity = MAX_RESIDENT_TILES;
     stats.max_in_flight = MAX_IN_FLIGHT;
     stats.ready_results = streamer.receiver.len();
-    stats.edit_count = streamer.edits.edits().len();
+    stats.world_epoch = streamer.world_epoch;
 }
 
 fn request_capacity(frozen: bool, in_flight: usize) -> usize {
@@ -664,11 +590,14 @@ mod tests {
                 SimulationSettings {
                     atlas_width: 32,
                     atlas_height: 16,
+                    climate_width: 16,
+                    climate_height: 8,
                     plate_count: 4,
                     hotspot_count: 1,
                     geological_age_myr: 10,
                     erosion_iterations: 1,
                     moisture_iterations: 4,
+                    glacial_iterations: 1,
                 },
             ))
         }))
@@ -784,6 +713,43 @@ mod tests {
             streamer.sample_elevation(center).to_bits(),
             streamer.snapshot().sample(center).elevation_m.to_bits()
         );
+    }
+
+    #[test]
+    fn replacing_a_world_preserves_the_view_but_drops_all_old_pages() {
+        let mut streamer = test_streamer();
+        let id = MapTileId {
+            level: 0,
+            x: 0,
+            y: 0,
+        };
+        streamer.set_active_layer(WorldDataLayer::Geology);
+        streamer.cache.insert(
+            id,
+            Arc::new(MapTileData::generate(
+                id,
+                WorldSeed(17),
+                TerrainSettings::default(),
+            )),
+        );
+        streamer.in_flight.insert(id);
+        streamer.completed = 4;
+
+        let old_revision = streamer.snapshot().revision();
+        let replacement = Arc::new(WorldSnapshot::generate(
+            WorldSeed(18),
+            streamer.snapshot().terrain_settings(),
+            streamer.snapshot().simulation_settings(),
+        ));
+        streamer.replace_snapshot(replacement);
+
+        assert_eq!(streamer.active_layer(), WorldDataLayer::Geology);
+        assert_eq!(streamer.world_epoch(), 1);
+        assert_ne!(streamer.snapshot().revision(), old_revision);
+        assert!(streamer.resident_tile_ids().is_empty());
+        assert!(streamer.in_flight_tile_ids().is_empty());
+        assert_eq!(streamer.completed, 0);
+        assert_eq!(streamer.receiver.len(), 0);
     }
 
     #[test]

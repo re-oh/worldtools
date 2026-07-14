@@ -5,7 +5,6 @@ use glam::DVec3;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    edit::EditJournal,
     geo::GeoPoint,
     seed::WorldSeed,
     tile::{TILE_APRON, TILE_STORAGE_SAMPLES, TileId, storage_index},
@@ -178,31 +177,12 @@ impl TerrainGenerator {
 
     #[must_use]
     pub fn generate(&self, id: TileId) -> TerrainTile {
-        self.generate_inner(id, None)
-    }
-
-    #[must_use]
-    pub fn generate_with_edits(&self, id: TileId, edits: &EditJournal) -> TerrainTile {
-        self.generate_inner(id, Some(edits))
-    }
-
-    fn generate_inner(&self, id: TileId, edits: Option<&EditJournal>) -> TerrainTile {
-        let relevant_edits = edits
-            .map(|journal| {
-                journal
-                    .edits_affecting(id, self.settings.planet_radius_m)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
         let mut elevation_m = vec![0.0_f32; TILE_STORAGE_SAMPLES * TILE_STORAGE_SAMPLES];
         for storage_y in 0..TILE_STORAGE_SAMPLES {
             for storage_x in 0..TILE_STORAGE_SAMPLES {
                 let direction = id.storage_sample_direction(storage_x, storage_y);
-                let base = self.sample_elevation_m(direction);
                 elevation_m[storage_index(storage_x, storage_y)] =
-                    relevant_edits.iter().fold(base, |elevation, edit| {
-                        edit.apply_elevation(direction, elevation, self.settings.planet_radius_m)
-                    });
+                    self.sample_elevation_m(direction);
             }
         }
 
