@@ -19,7 +19,7 @@ pub fn show(
         .frame(style::panel_frame(BG_PANEL).inner_margin(egui::Margin::ZERO))
         .show(root, |ui| {
             ui.spacing_mut().item_spacing = Vec2::ZERO;
-            for tool in ActiveTool::ALL {
+            for tool in ActiveTool::PRIMARY {
                 let response = widgets::icon_button(
                     ui,
                     tool_icon(tool),

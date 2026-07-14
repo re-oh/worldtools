@@ -101,19 +101,23 @@ pub fn plan_tiles(view: MapView, viewport_size: Vec2) -> TilePlan {
     }
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // Level 17 caps every integer here below 2^19, which f32 represents exactly.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // Map extents are capped at 2^18 and remain exact in f64.
 fn placements_at_level(view: MapView, level: u8, aspect: f32) -> Vec<MapTilePlacement> {
     let y_extent = 1_i64 << level;
     let x_extent = y_extent * 2;
     let horizontal_span = view.horizontal_span(aspect);
-    let x_min = ((view.center.x - horizontal_span * 0.5) * x_extent as f32).floor() as i64
+    let x_min = ((view.center.x - f64::from(horizontal_span * 0.5)) * x_extent as f64).floor()
+        as i64
         - PREFETCH_MARGIN;
-    let x_max = ((view.center.x + horizontal_span * 0.5) * x_extent as f32).floor() as i64
+    let x_max = ((view.center.x + f64::from(horizontal_span * 0.5)) * x_extent as f64).floor()
+        as i64
         + PREFETCH_MARGIN;
-    let y_min = (((view.center.y - view.vertical_span * 0.5) * y_extent as f32).floor() as i64
+    let y_min = (((view.center.y - f64::from(view.vertical_span * 0.5)) * y_extent as f64).floor()
+        as i64
         - PREFETCH_MARGIN)
         .clamp(0, y_extent - 1);
-    let y_max = (((view.center.y + view.vertical_span * 0.5) * y_extent as f32).floor() as i64
+    let y_max = (((view.center.y + f64::from(view.vertical_span * 0.5)) * y_extent as f64).floor()
+        as i64
         + PREFETCH_MARGIN)
         .clamp(0, y_extent - 1);
 
@@ -141,6 +145,7 @@ fn placements_at_level(view: MapView, level: u8, aspect: f32) -> Vec<MapTilePlac
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::math::DVec2;
 
     #[test]
     fn global_view_uses_square_root_tiles() {
@@ -161,7 +166,7 @@ mod tests {
     #[test]
     fn planning_wraps_longitude_without_losing_placement() {
         let view = MapView {
-            center: Vec2::new(0.01, 0.5),
+            center: DVec2::new(0.01, 0.5),
             vertical_span: 0.25,
         };
         let plan = plan_tiles(view, Vec2::new(1200.0, 600.0));
@@ -174,9 +179,46 @@ mod tests {
     }
 
     #[test]
+    fn planning_across_longitude_seam_keeps_unwrapped_placements_stable() {
+        let before = plan_tiles(
+            MapView {
+                center: DVec2::new(0.99, 0.5),
+                vertical_span: 0.25,
+            },
+            Vec2::new(1_200.0, 600.0),
+        );
+        let after = plan_tiles(
+            MapView {
+                center: DVec2::new(1.01, 0.5),
+                vertical_span: 0.25,
+            },
+            Vec2::new(1_200.0, 600.0),
+        );
+
+        let retained = before
+            .placements
+            .iter()
+            .filter(|placement| after.placements.contains(placement))
+            .count();
+        assert!(retained > before.placements.len() / 2);
+        assert!(
+            after
+                .placements
+                .iter()
+                .any(|placement| placement.unwrapped_x >= i64::from(placement.id.x_extent()))
+        );
+        assert!(
+            after
+                .placements
+                .iter()
+                .all(|placement| placement.id.x < placement.id.x_extent())
+        );
+    }
+
+    #[test]
     fn zoom_is_capped_at_sub_metre_source_resolution() {
         let view = MapView {
-            center: Vec2::splat(0.5),
+            center: DVec2::splat(0.5),
             vertical_span: 1.0 / 262_144.0,
         };
         assert_eq!(

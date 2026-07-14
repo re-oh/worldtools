@@ -12,6 +12,10 @@ pub enum ActiveTool {
 }
 
 impl ActiveTool {
+    /// Tools with a complete native interaction path.
+    pub const PRIMARY: [Self; 3] = [Self::Navigate, Self::Inspect, Self::Sculpt];
+
+    /// All planned tools, including those not yet available in the editor.
     pub const ALL: [Self; 6] = [
         Self::Navigate,
         Self::Inspect,
@@ -51,6 +55,45 @@ impl ActiveTool {
             self,
             Self::Sculpt | Self::Smooth | Self::RiverGuide | Self::PaintConstraint
         )
+    }
+
+    #[must_use]
+    pub const fn is_available(self) -> bool {
+        matches!(self, Self::Navigate | Self::Inspect | Self::Sculpt)
+    }
+}
+
+/// Selects how the active world data is presented in the map viewport.
+///
+/// These modes are intentionally limited to views derivable from elevation.
+/// Adding a mode backed by another dataset requires that dataset to be native.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MapViewMode {
+    #[default]
+    Terrain,
+    Elevation,
+    Slope,
+}
+
+impl MapViewMode {
+    pub const ALL: [Self; 3] = [Self::Terrain, Self::Elevation, Self::Slope];
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Terrain => "Terrain",
+            Self::Elevation => "Elevation",
+            Self::Slope => "Slope",
+        }
+    }
+
+    #[must_use]
+    pub const fn description(self) -> &'static str {
+        match self {
+            Self::Terrain => "Natural relief and bathymetry",
+            Self::Elevation => "Absolute height above sea level",
+            Self::Slope => "Terrain steepness derived from elevation",
+        }
     }
 }
 
@@ -192,5 +235,33 @@ mod tests {
         assert!((brush.radius_m - 1.0).abs() < f32::EPSILON);
         assert!((brush.strength - 1.0).abs() < f32::EPSILON);
         assert!((brush.spacing - 0.02).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn primary_tools_only_expose_working_interactions() {
+        assert_eq!(
+            ActiveTool::PRIMARY,
+            [
+                ActiveTool::Navigate,
+                ActiveTool::Inspect,
+                ActiveTool::Sculpt
+            ]
+        );
+        assert!(
+            ActiveTool::PRIMARY
+                .into_iter()
+                .all(ActiveTool::is_available)
+        );
+        assert!(!ActiveTool::Smooth.is_available());
+        assert!(!ActiveTool::RiverGuide.is_available());
+        assert!(!ActiveTool::PaintConstraint.is_available());
+    }
+
+    #[test]
+    fn map_views_are_derived_from_available_elevation_data() {
+        assert_eq!(MapViewMode::ALL.len(), 3);
+        assert_eq!(MapViewMode::default(), MapViewMode::Terrain);
+        assert_eq!(MapViewMode::Elevation.label(), "Elevation");
+        assert!(!MapViewMode::Slope.description().is_empty());
     }
 }

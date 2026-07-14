@@ -1,9 +1,9 @@
 use bevy::{input::ButtonInput, prelude::*, window::PrimaryWindow};
 use worldtools_render::{MapTileStreamer, MapView, TileStreamStats, VisibleMapTiles};
 use worldtools_ui::{
-    ActiveTool, BrushFalloff as UiFalloff, BrushOperation, DocumentStatus, EditorCommand,
-    EditorUiState, GenerationActivity, GenerationScope, GenerationStatus, MapReadout,
-    MapViewport as UiViewport, PipelineStage, SaveState, WorldLayer,
+    ActiveTool, BrushFalloff as UiFalloff, BrushOperation, DirtyRegion, DocumentStatus,
+    EditorCommand, EditorUiState, GenerationActivity, GenerationScope, GenerationStatus, MapProbe,
+    MapReadout, MapViewport as UiViewport, PipelineStage, SaveState, TerrainProbe, WorldLayer,
 };
 use worldtools_world::{BrushFalloff, EditOperation, GeoPoint, TerrainEdit, angular_distance};
 
@@ -23,12 +23,77 @@ impl Plugin for WorldEditorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<EditorSession>().add_systems(
             Update,
-            (handle_commands, capture_sculpt_stroke, sync_telemetry).chain(),
+            (
+                handle_commands,
+                capture_inspection,
+                capture_sculpt_stroke,
+                sync_telemetry,
+            )
+                .chain(),
         );
     }
 }
 
-#[allow(clippy::needless_pass_by_value)] // Bevy system parameters are value wrappers.
+#[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)] // Bevy system parameters are value wrappers.
+fn capture_inspection(
+    buttons: Res<ButtonInput<MouseButton>>,
+    ui: Res<EditorUiState>,
+    viewport: Res<UiViewport>,
+    view: Res<MapView>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    streamer: Res<MapTileStreamer>,
+    readout: Res<MapReadout>,
+    mut probe: ResMut<MapProbe>,
+) {
+    if ui.active_tool != ActiveTool::Inspect || !buttons.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Some(point) = (!viewport.input_blocked)
+        .then(|| pointer_geo(window, &viewport, *view))
+        .flatten()
+    else {
+        return;
+    };
+
+    let elevation_m = streamer.sample_elevation(point);
+    probe.selected = Some(TerrainProbe {
+        latitude_degrees: point.latitude.to_degrees(),
+        longitude_degrees: point.longitude.to_degrees(),
+        elevation_m,
+        slope_degrees: sample_slope(
+            point,
+            &streamer,
+            readout.meters_per_pixel.clamp(1.0, 10_000.0),
+        ),
+        is_water: elevation_m < 0.0,
+    });
+}
+
+fn sample_slope(point: GeoPoint, streamer: &MapTileStreamer, baseline_m: f64) -> f64 {
+    let angular = baseline_m / PLANET_RADIUS_M;
+    let latitude = point.latitude;
+    let longitude = point.longitude;
+    let longitude_step = angular / latitude.cos().abs().max(0.05);
+    let north = GeoPoint::from_radians(
+        (latitude + angular).min(std::f64::consts::FRAC_PI_2),
+        longitude,
+    );
+    let south = GeoPoint::from_radians(
+        (latitude - angular).max(-std::f64::consts::FRAC_PI_2),
+        longitude,
+    );
+    let east = GeoPoint::from_radians(latitude, longitude + longitude_step);
+    let west = GeoPoint::from_radians(latitude, longitude - longitude_step);
+    let dz_north = f64::from(streamer.sample_elevation(north) - streamer.sample_elevation(south));
+    let dz_east = f64::from(streamer.sample_elevation(east) - streamer.sample_elevation(west));
+    let gradient = dz_north.hypot(dz_east) / (2.0 * baseline_m);
+    gradient.atan().to_degrees()
+}
+
+#[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)] // Bevy system parameters are value wrappers.
 fn handle_commands(
     mut commands: MessageReader<EditorCommand>,
     mut streamer: ResMut<MapTileStreamer>,
@@ -36,8 +101,17 @@ fn handle_commands(
     mut session: ResMut<EditorSession>,
     mut document: ResMut<DocumentStatus>,
     mut generation: ResMut<GenerationStatus>,
+    mut probe: ResMut<MapProbe>,
 ) {
     for command in commands.read() {
+        let invalidates_probe = matches!(
+            command,
+            EditorCommand::Undo
+                | EditorCommand::Redo
+                | EditorCommand::NewWorld
+                | EditorCommand::ClearLayerEdits(WorldLayer::Elevation)
+                | EditorCommand::Generate(_)
+        );
         let affected = match command {
             EditorCommand::Undo => undo(&mut session, &mut streamer),
             EditorCommand::Redo => redo(&mut session, &mut streamer),
@@ -61,6 +135,9 @@ fn handle_commands(
         if affected > 0 {
             mark_dirty(&mut generation, affected);
         }
+        if invalidates_probe {
+            probe.selected = None;
+        }
         update_history_status(&session, &mut document);
     }
 }
@@ -77,6 +154,7 @@ fn capture_sculpt_stroke(
     mut session: ResMut<EditorSession>,
     mut document: ResMut<DocumentStatus>,
     mut generation: ResMut<GenerationStatus>,
+    mut probe: ResMut<MapProbe>,
 ) {
     if ui.active_tool != ActiveTool::Sculpt {
         session.stroke.clear();
@@ -126,6 +204,7 @@ fn capture_sculpt_stroke(
             document.save_state = SaveState::Modified;
             update_history_status(&session, &mut document);
             mark_dirty(&mut generation, affected);
+            probe.selected = None;
         }
         Err(error) => error!(%error, "failed to commit sculpt stroke"),
     }
@@ -151,6 +230,7 @@ fn sync_telemetry(
         .map(|point| [point.longitude.to_degrees(), point.latitude.to_degrees()]);
 
     generation.activity = if stats.in_flight == 0 {
+        generation.dirty = DirtyRegion::default();
         GenerationActivity::Idle
     } else {
         GenerationActivity::Running {
@@ -172,11 +252,12 @@ fn pointer_geo(window: &Window, viewport: &UiViewport, view: MapView) -> Option<
     }
     let aspect = size.x / size.y;
     let normalized = local / size - Vec2::splat(0.5);
-    let world_x = (view.center.x + normalized.x * view.horizontal_span(aspect)).rem_euclid(1.0);
-    let world_y = (view.center.y + normalized.y * view.vertical_span).clamp(0.0, 1.0);
+    let world_x =
+        (view.center.x + f64::from(normalized.x * view.horizontal_span(aspect))).rem_euclid(1.0);
+    let world_y = (view.center.y + f64::from(normalized.y * view.vertical_span)).clamp(0.0, 1.0);
     Some(GeoPoint::from_degrees(
-        90.0 - 180.0 * f64::from(world_y),
-        -180.0 + 360.0 * f64::from(world_x),
+        90.0 - 180.0 * world_y,
+        -180.0 + 360.0 * world_x,
     ))
 }
 

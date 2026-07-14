@@ -1,6 +1,8 @@
 use bevy::prelude::Message;
 
-use super::{ActiveTool, BrushSettings, GenerationScope, JobId, ViewportRect, WorldLayer};
+use super::{
+    ActiveTool, BrushSettings, GenerationScope, JobId, MapViewMode, ViewportRect, WorldLayer,
+};
 
 #[derive(Message, Debug, Clone, PartialEq)]
 pub enum EditorCommand {
@@ -12,6 +14,7 @@ pub enum EditorCommand {
     Redo,
     OpenPreferences,
     SelectTool(ActiveTool),
+    SelectMapView(MapViewMode),
     SelectLayer(WorldLayer),
     SetLayerVisibility { layer: WorldLayer, visible: bool },
     SetLayerOpacity { layer: WorldLayer, opacity: f32 },

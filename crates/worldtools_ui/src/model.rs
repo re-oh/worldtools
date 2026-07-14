@@ -5,6 +5,7 @@ mod document;
 mod editor;
 mod generation;
 mod jobs;
+mod probe;
 mod tools;
 mod viewport;
 
@@ -15,5 +16,6 @@ pub use document::*;
 pub use editor::*;
 pub use generation::*;
 pub use jobs::*;
+pub use probe::*;
 pub use tools::*;
 pub use viewport::*;

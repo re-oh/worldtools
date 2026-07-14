@@ -37,27 +37,50 @@ pub fn show(
                             .small()
                             .color(TEXT_MUTED),
                     );
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{}  Generator graph",
-                            icons::TREE_STRUCTURE.as_str()
-                        ))
-                        .color(TEXT_MUTED),
-                    );
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{}  Edit journal",
-                            icons::NOTE_PENCIL.as_str()
-                        ))
-                        .color(TEXT_MUTED),
-                    );
                 });
 
-            widgets::section_header(ui, "Layers");
-            for layer in WorldLayer::ALL {
+            widgets::section_header(ui, "Data");
+            for layer in WorldLayer::ALL
+                .into_iter()
+                .filter(|layer| capabilities.availability(*layer).is_available())
+            {
                 layer_row(ui, state, capabilities, layer, commands);
             }
+
+            future_data(ui, capabilities);
         });
+}
+
+fn future_data(ui: &mut egui::Ui, capabilities: &LayerCapabilities) {
+    let unavailable = WorldLayer::ALL
+        .into_iter()
+        .filter(|layer| !capabilities.availability(*layer).is_available())
+        .collect::<Vec<_>>();
+    if unavailable.is_empty() {
+        return;
+    }
+
+    ui.add_space(4.0);
+    egui::CollapsingHeader::new(
+        egui::RichText::new(format!("Future data ({})", unavailable.len()))
+            .small()
+            .color(TEXT_MUTED),
+    )
+    .default_open(false)
+    .show(ui, |ui| {
+        for layer in unavailable {
+            let reason = capabilities
+                .availability(layer)
+                .reason()
+                .unwrap_or("unavailable");
+            ui.horizontal(|ui| {
+                ui.label(style::icon_text(layer_icon(layer), 13.0, TEXT_MUTED));
+                ui.label(egui::RichText::new(layer.label()).color(TEXT_MUTED));
+            })
+            .response
+            .on_hover_text(reason);
+        }
+    });
 }
 
 fn layer_row(
@@ -70,28 +93,6 @@ fn layer_row(
     let availability = capabilities.availability(layer);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
-        let mut visible = state.layer_visible(layer);
-        let eye = if visible {
-            icons::EYE
-        } else {
-            icons::EYE_SLASH
-        };
-        if ui
-            .add_enabled_ui(availability.is_available(), |ui| {
-                ui.add_sized(
-                    [24.0, 22.0],
-                    egui::Button::new(style::icon_text(eye, 14.0, TEXT_MUTED)).frame(false),
-                )
-            })
-            .inner
-            .on_hover_text(if visible { "Hide layer" } else { "Show layer" })
-            .clicked()
-        {
-            visible = !visible;
-            state.set_layer_visible(layer, visible);
-            commands.write(EditorCommand::SetLayerVisibility { layer, visible });
-        }
-
         let selected = state.active_layer == layer;
         let response = ui
             .add_enabled_ui(availability.is_available(), |ui| {

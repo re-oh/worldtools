@@ -19,6 +19,8 @@ pub struct TerrainTileMaterialParams {
     pub metrics: Vec4,
     /// Bit flags, border width, desired LOD, source LOD.
     pub debug: Vec4,
+    /// Display mode, sea level, contour interval, relief strength.
+    pub display: Vec4,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]

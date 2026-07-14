@@ -1,6 +1,6 @@
 use bevy::prelude::Resource;
 
-use super::{ActiveTool, BrushSettings, GenerationScope, WorldLayer};
+use super::{ActiveTool, BrushSettings, GenerationScope, MapViewMode, WorldLayer};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum DrawerTab {
@@ -12,6 +12,7 @@ pub enum DrawerTab {
 #[derive(Resource, Debug, Clone)]
 pub struct EditorUiState {
     pub active_tool: ActiveTool,
+    pub map_view: MapViewMode,
     pub active_layer: WorldLayer,
     pub layer_visibility: [bool; WorldLayer::COUNT],
     pub layer_opacity: [f32; WorldLayer::COUNT],
@@ -26,6 +27,7 @@ impl Default for EditorUiState {
     fn default() -> Self {
         Self {
             active_tool: ActiveTool::default(),
+            map_view: MapViewMode::default(),
             active_layer: WorldLayer::default(),
             layer_visibility: [true; WorldLayer::COUNT],
             layer_opacity: [1.0; WorldLayer::COUNT],
@@ -71,5 +73,10 @@ mod tests {
         assert!(!state.layer_visible(WorldLayer::Climate));
         assert!(state.layer_visible(WorldLayer::Elevation));
         assert!((state.layer_opacity(WorldLayer::Hydrology) - 0.4).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn editor_starts_in_the_natural_terrain_view() {
+        assert_eq!(EditorUiState::default().map_view, MapViewMode::Terrain);
     }
 }

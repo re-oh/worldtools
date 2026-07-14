@@ -51,7 +51,7 @@ pub fn show(
                         ui.separator();
                         ui.label(
                             egui::RichText::new(format!(
-                                "LOD {}  ·  {}",
+                                "LOD {} | {}",
                                 readout.lod,
                                 format_resolution(readout.meters_per_pixel)
                             ))
@@ -63,9 +63,11 @@ pub fn show(
                     if let Some([longitude, latitude]) = readout.cursor_degrees {
                         ui.separator();
                         ui.label(
-                            egui::RichText::new(format!("{latitude:+08.3}°  {longitude:+09.3}°"))
-                                .color(TEXT_MUTED)
-                                .size(11.0),
+                            egui::RichText::new(format!(
+                                "{latitude:+08.3} deg  {longitude:+09.3} deg"
+                            ))
+                            .color(TEXT_MUTED)
+                            .size(11.0),
                         );
                     }
                 });
@@ -76,16 +78,16 @@ pub fn show(
 fn generation_label(status: &GenerationStatus) -> (egui::Color32, String) {
     match &status.activity {
         GenerationActivity::Idle => (VALID, "Ready".to_owned()),
-        GenerationActivity::Queued { jobs } => (WARNING, format!("Queued · {jobs} jobs")),
+        GenerationActivity::Queued { jobs } => (WARNING, format!("Queued | {jobs} jobs")),
         GenerationActivity::Running {
             stage,
             completed,
             total,
         } => (
             style::ACCENT,
-            format!("Generating {stage} · {completed}/{total}"),
+            format!("Generating {stage} | {completed}/{total}"),
         ),
-        GenerationActivity::Failed { message } => (ERROR, format!("Generation failed · {message}")),
+        GenerationActivity::Failed { message } => (ERROR, format!("Generation failed | {message}")),
     }
 }
 

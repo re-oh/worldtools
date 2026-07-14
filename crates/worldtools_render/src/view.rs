@@ -1,5 +1,6 @@
 use bevy::{
     input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit},
+    math::DVec2,
     prelude::{ButtonInput, MouseButton, Query, Res, ResMut, Resource, Vec2, Window, With},
     window::PrimaryWindow,
 };
@@ -8,14 +9,14 @@ const MIN_VERTICAL_SPAN: f32 = 1.0 / 32_768.0;
 
 #[derive(Clone, Copy, Debug, Resource)]
 pub struct MapView {
-    pub center: Vec2,
+    pub center: DVec2,
     pub vertical_span: f32,
 }
 
 impl Default for MapView {
     fn default() -> Self {
         Self {
-            center: Vec2::splat(0.5),
+            center: DVec2::splat(0.5),
             vertical_span: 1.0,
         }
     }
@@ -32,10 +33,12 @@ impl MapView {
             return;
         }
         let aspect = viewport_size.x / viewport_size.y;
-        self.center.x = (self.center.x - delta.x / viewport_size.x * self.horizontal_span(aspect))
-            .rem_euclid(1.0);
-        self.center.y = (self.center.y - delta.y / viewport_size.y * self.vertical_span)
-            .clamp(self.vertical_span * 0.5, 1.0 - self.vertical_span * 0.5);
+        self.center.x -= f64::from(delta.x / viewport_size.x * self.horizontal_span(aspect));
+        self.center.y = (self.center.y - f64::from(delta.y / viewport_size.y * self.vertical_span))
+            .clamp(
+                f64::from(self.vertical_span * 0.5),
+                f64::from(1.0 - self.vertical_span * 0.5),
+            );
     }
 
     pub fn zoom_at(&mut self, wheel_steps: f32, pointer: Vec2, viewport_size: Vec2) {
@@ -50,14 +53,76 @@ impl MapView {
         let new_horizontal = new_vertical * aspect * 0.5;
         let local = pointer / viewport_size - Vec2::splat(0.5);
 
-        self.center.x =
-            (self.center.x + local.x * (old_horizontal - new_horizontal)).rem_euclid(1.0);
-        self.center.y += local.y * (old_vertical - new_vertical);
+        self.center.x += f64::from(local.x * (old_horizontal - new_horizontal));
+        self.center.y += f64::from(local.y * (old_vertical - new_vertical));
         self.vertical_span = new_vertical;
-        self.center.y = self
-            .center
-            .y
-            .clamp(new_vertical * 0.5, 1.0 - new_vertical * 0.5);
+        self.center.y = self.center.y.clamp(
+            f64::from(new_vertical * 0.5),
+            f64::from(1.0 - new_vertical * 0.5),
+        );
+    }
+}
+
+/// Configures pointer gestures without coupling the renderer to editor tools.
+///
+/// Middle-button panning is always available. The application should disable
+/// primary-button panning while a tool owns primary-button drags.
+#[derive(Clone, Copy, Debug, Resource)]
+pub struct MapNavigationSettings {
+    pub primary_pan: bool,
+}
+
+impl Default for MapNavigationSettings {
+    fn default() -> Self {
+        Self { primary_pan: true }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PanButton {
+    Primary,
+    Middle,
+}
+
+impl PanButton {
+    const fn mouse_button(self) -> MouseButton {
+        match self {
+            Self::Primary => MouseButton::Left,
+            Self::Middle => MouseButton::Middle,
+        }
+    }
+}
+
+#[derive(Debug, Default, Resource)]
+pub(crate) struct MapNavigationState {
+    active_pan: Option<PanButton>,
+}
+
+impl MapNavigationState {
+    fn update(
+        &mut self,
+        buttons: &ButtonInput<MouseButton>,
+        primary_pan: bool,
+        can_start: bool,
+    ) -> bool {
+        if self
+            .active_pan
+            .is_some_and(|button| !buttons.pressed(button.mouse_button()))
+        {
+            self.active_pan = None;
+        }
+
+        if self.active_pan.is_none() && can_start {
+            self.active_pan = if buttons.just_pressed(MouseButton::Middle) {
+                Some(PanButton::Middle)
+            } else if primary_pan && buttons.just_pressed(MouseButton::Left) {
+                Some(PanButton::Primary)
+            } else {
+                None
+            };
+        }
+
+        self.active_pan.is_some()
     }
 }
 
@@ -104,30 +169,34 @@ impl MapViewport {
 }
 
 #[allow(clippy::needless_pass_by_value)] // Bevy system parameters are value wrappers.
+#[allow(clippy::too_many_arguments)] // Input resources remain independently observable by Bevy.
 pub(crate) fn navigate(
     mut view: ResMut<MapView>,
     viewport: Res<MapViewport>,
+    settings: Res<MapNavigationSettings>,
+    mut state: ResMut<MapNavigationState>,
     buttons: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
     windows: Query<&Window, With<PrimaryWindow>>,
 ) {
-    if viewport.input_blocked {
-        return;
-    }
     let Ok(window) = windows.single() else {
         return;
     };
     let fallback = Vec2::new(window.width(), window.height());
-    let Some(pointer) = window.cursor_position() else {
-        return;
-    };
-    let Some((local_pointer, viewport_size)) = viewport.local_pointer(pointer, fallback) else {
-        return;
-    };
+    let pointer_in_viewport = window
+        .cursor_position()
+        .and_then(|pointer| viewport.local_pointer(pointer, fallback));
+    let can_start = !viewport.input_blocked && pointer_in_viewport.is_some();
 
-    if buttons.pressed(MouseButton::Middle) {
-        view.pan_pixels(motion.delta, viewport_size);
+    if state.update(&buttons, settings.primary_pan, can_start) {
+        view.pan_pixels(motion.delta, viewport.size(fallback));
+    }
+    let Some((local_pointer, viewport_size)) = pointer_in_viewport else {
+        return;
+    };
+    if viewport.input_blocked {
+        return;
     }
     let scroll_scale = match scroll.unit {
         MouseScrollUnit::Line => 1.0,
@@ -141,10 +210,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn longitude_wraps_during_pan() {
+    fn longitude_stays_unwrapped_during_pan() {
         let mut view = MapView::default();
         view.pan_pixels(Vec2::new(2_000.0, 0.0), Vec2::new(1_000.0, 500.0));
-        assert!((0.0..1.0).contains(&view.center.x));
+        assert!(view.center.x < 0.0);
     }
 
     #[test]
@@ -167,10 +236,24 @@ mod tests {
         let mut view = MapView::default();
         let size = Vec2::new(1_000.0, 500.0);
         let pointer = Vec2::new(750.0, 250.0);
-        let before = view.center.x + 0.25 * view.horizontal_span(2.0);
+        let before = view.center.x + f64::from(0.25 * view.horizontal_span(2.0));
         view.zoom_at(2.0, pointer, size);
-        let after = view.center.x + 0.25 * view.horizontal_span(2.0);
+        let after = view.center.x + f64::from(0.25 * view.horizontal_span(2.0));
         assert!((before - after).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn metre_scale_pan_survives_many_world_wraps() {
+        let mut view = MapView {
+            center: DVec2::new(128.5, 0.5),
+            vertical_span: MIN_VERTICAL_SPAN,
+        };
+        let before = view.center.x;
+
+        view.pan_pixels(Vec2::X, Vec2::new(1_000.0, 500.0));
+
+        assert!((view.center.x - before).abs() > f64::EPSILON);
+        assert!((view.center.x - before).abs() < 1.0e-6);
     }
 
     #[test]
@@ -195,5 +278,36 @@ mod tests {
         view.zoom_at(10_000.0, Vec2::splat(500.0), Vec2::splat(1_000.0));
 
         assert!((view.vertical_span - MIN_VERTICAL_SPAN).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn primary_pan_is_controlled_by_settings() {
+        let mut state = MapNavigationState::default();
+        let mut buttons = ButtonInput::default();
+        buttons.press(MouseButton::Left);
+
+        assert!(!state.update(&buttons, false, true));
+        assert!(state.update(&buttons, true, true));
+    }
+
+    #[test]
+    fn middle_pan_is_always_available() {
+        let mut state = MapNavigationState::default();
+        let mut buttons = ButtonInput::default();
+        buttons.press(MouseButton::Middle);
+
+        assert!(state.update(&buttons, false, true));
+    }
+
+    #[test]
+    fn active_pan_remains_captured_outside_viewport() {
+        let mut state = MapNavigationState::default();
+        let mut buttons = ButtonInput::default();
+        buttons.press(MouseButton::Middle);
+        assert!(state.update(&buttons, false, true));
+
+        assert!(state.update(&buttons, false, false));
+        buttons.release(MouseButton::Middle);
+        assert!(!state.update(&buttons, false, false));
     }
 }

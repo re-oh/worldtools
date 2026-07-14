@@ -4,6 +4,7 @@ struct TerrainTileMaterialParams {
     sample_rect: vec4<f32>,
     metrics: vec4<f32>,
     debug: vec4<f32>,
+    display: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0)
@@ -79,6 +80,66 @@ fn elevation_color(height_m: f32) -> vec3<f32> {
     );
 }
 
+fn elevation_scale_color(height_m: f32) -> vec3<f32> {
+    if (height_m < 0.0) {
+        let depth = clamp(-height_m / 6500.0, 0.0, 1.0);
+        return mix(vec3<f32>(0.30, 0.76, 0.82), vec3<f32>(0.03, 0.10, 0.28), depth);
+    }
+    if (height_m < 1200.0) {
+        return mix(
+            vec3<f32>(0.22, 0.57, 0.31),
+            vec3<f32>(0.86, 0.78, 0.28),
+            height_m / 1200.0,
+        );
+    }
+    if (height_m < 3000.0) {
+        return mix(
+            vec3<f32>(0.86, 0.78, 0.28),
+            vec3<f32>(0.70, 0.24, 0.18),
+            (height_m - 1200.0) / 1800.0,
+        );
+    }
+    return mix(
+        vec3<f32>(0.70, 0.24, 0.18),
+        vec3<f32>(0.96, 0.96, 0.94),
+        clamp((height_m - 3000.0) / 3000.0, 0.0, 1.0),
+    );
+}
+
+fn slope_color(slope_degrees: f32) -> vec3<f32> {
+    let gentle = mix(
+        vec3<f32>(0.10, 0.34, 0.30),
+        vec3<f32>(0.90, 0.78, 0.24),
+        smoothstep(0.05, 2.0, slope_degrees),
+    );
+    let steep = mix(
+        gentle,
+        vec3<f32>(0.80, 0.24, 0.16),
+        smoothstep(2.0, 10.0, slope_degrees),
+    );
+    return mix(
+        steep,
+        vec3<f32>(0.18, 0.17, 0.20),
+        smoothstep(10.0, 35.0, slope_degrees),
+    );
+}
+
+fn terrain_normal(surface: vec3<f32>, metres: vec2<f32>) -> vec3<f32> {
+    return normalize(vec3<f32>(-surface.y / metres.x, surface.z / metres.y, 1.0));
+}
+
+fn directional_light(normal: vec3<f32>) -> f32 {
+    let light = normalize(vec3<f32>(-0.55, -0.45, 0.72));
+    return clamp(dot(normal, light), 0.25, 1.0);
+}
+
+fn contour_line(height_m: f32, interval_m: f32) -> f32 {
+    let interval = max(interval_m, 1.0);
+    let phase = abs(fract(height_m / interval + 0.5) - 0.5) * interval;
+    let width = max(fwidth(height_m) * 0.75, 0.75);
+    return 1.0 - smoothstep(width, width * 2.0, phase);
+}
+
 fn lod_color(level: u32) -> vec3<f32> {
     let palette = array<vec3<f32>, 6>(
         vec3<f32>(0.93, 0.24, 0.28),
@@ -102,10 +163,33 @@ fn tile_border(uv: vec2<f32>, width_px: f32) -> f32 {
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let surface = sample_surface(mesh.uv);
     let metres = max(params.metrics.xy, vec2<f32>(0.01));
-    let normal = normalize(vec3<f32>(-surface.y / metres.x, surface.z / metres.y, 1.0));
-    let light = normalize(vec3<f32>(-0.55, -0.45, 0.72));
-    let illumination = 0.72 + clamp(dot(normal, light), 0.35, 1.0) * 0.38;
-    var color = elevation_color(surface.x) * illumination;
+    let normal = terrain_normal(surface, metres);
+    let light = directional_light(normal);
+    let relative_height = surface.x - params.display.y;
+    let mode = u32(params.display.x);
+    let relief_strength = params.display.w;
+    var color: vec3<f32>;
+
+    if (mode == 1u) {
+        color = elevation_scale_color(relative_height);
+    } else if (mode == 2u) {
+        let relief = mix(0.5, 0.12 + light * 0.88, relief_strength);
+        color = vec3<f32>(relief);
+    } else if (mode == 3u) {
+        let rise_over_run = length(vec2<f32>(surface.y / metres.x, surface.z / metres.y));
+        let slope_degrees = atan(rise_over_run) * 57.2957795;
+        color = slope_color(slope_degrees);
+    } else if (mode == 4u) {
+        color = elevation_color(relative_height);
+        let interval = max(params.display.z, 1.0);
+        let minor = contour_line(relative_height, interval);
+        let major = contour_line(relative_height, interval * 5.0);
+        let line = clamp(minor * 0.36 + major * 0.72, 0.0, 1.0);
+        color = mix(color, vec3<f32>(0.045, 0.050, 0.055), line);
+    } else {
+        let illumination = mix(1.0, 0.62 + light * 0.45, relief_strength);
+        color = elevation_color(relative_height) * illumination;
+    }
 
     let noise_size = vec2<i32>(textureDimensions(blue_noise_texture, 0));
     let pixel = vec2<i32>(mesh.position.xy);
@@ -133,5 +217,5 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
         let border = tile_border(mesh.uv, max(params.debug.y, 0.5));
         color = mix(color, vec3<f32>(0.95), border * 0.9);
     }
-    return vec4<f32>(color, 1.0);
+    return vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }

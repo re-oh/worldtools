@@ -122,8 +122,8 @@ pub fn sync_telemetry(
     };
     telemetry.viewport = Some(ViewportDiagnostics {
         center_degrees: [
-            f64::from(view.center.x) * 360.0 - 180.0,
-            90.0 - f64::from(view.center.y) * 180.0,
+            view.center.x.rem_euclid(1.0) * 360.0 - 180.0,
+            90.0 - view.center.y * 180.0,
         ],
         vertical_span_degrees: f64::from(view.vertical_span) * 180.0,
         logical_size,

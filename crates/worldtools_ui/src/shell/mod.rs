@@ -12,15 +12,15 @@ use bevy_egui::{EguiContexts, egui};
 
 use crate::{
     AnalysisStatus, DebugCommand, DebugEventLog, DebugTelemetry, DebugUiState, DocumentStatus,
-    EditorCommand, EditorUiState, GenerationStatus, JobQueue, LayerCapabilities, MapReadout,
-    MapViewport, MapViewportChanged, style,
+    EditorCommand, EditorUiState, GenerationStatus, JobQueue, LayerCapabilities, MapProbe,
+    MapReadout, MapViewport, MapViewportChanged, style,
 };
 
 #[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)] // Bevy system parameters are value wrappers.
 pub fn draw_editor_shell(
     mut contexts: EguiContexts,
     mut ui_state: ResMut<EditorUiState>,
-    document: Res<DocumentStatus>,
+    document_and_probe: (Res<DocumentStatus>, Res<MapProbe>),
     generation: Res<GenerationStatus>,
     readout: Res<MapReadout>,
     jobs: Res<JobQueue>,
@@ -35,6 +35,7 @@ pub fn draw_editor_shell(
     mut viewport_changes: MessageWriter<MapViewportChanged>,
     mut initialized: Local<bool>,
 ) -> Result {
+    let (document, probe) = document_and_probe;
     let ctx = contexts.ctx_mut()?;
     if !*initialized {
         style::install(ctx);
@@ -78,11 +79,17 @@ pub fn draw_editor_shell(
     inspector::show(
         &mut root_ui,
         &mut ui_state,
-        &generation,
         &capabilities,
+        &probe,
         &mut commands,
     );
-    viewport::show(&mut root_ui, &mut viewport_state, &mut viewport_changes);
+    viewport::show(
+        &mut root_ui,
+        &mut ui_state,
+        &mut viewport_state,
+        &mut commands,
+        &mut viewport_changes,
+    );
     debug_window::show(
         ctx,
         &mut debug_state,

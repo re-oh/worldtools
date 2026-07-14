@@ -31,6 +31,7 @@ impl Plugin for WorldToolsUiPlugin {
             .init_resource::<DocumentStatus>()
             .init_resource::<GenerationStatus>()
             .init_resource::<MapReadout>()
+            .init_resource::<MapProbe>()
             .init_resource::<JobQueue>()
             .init_resource::<AnalysisStatus>()
             .init_resource::<MapViewport>()
@@ -49,8 +50,8 @@ pub mod prelude {
         DebugRenderOptions, DebugTab, DebugTelemetry, DebugUiState, DirtyRegion, DocumentStatus,
         DrawerTab, EditorCommand, EditorUiState, FrameDiagnostics, GenerationActivity,
         GenerationScope, GenerationStatus, JobId, JobQueue, JobState, JobSummary,
-        LayerAvailability, LayerCapabilities, MapReadout, MapViewport, MapViewportChanged,
-        PipelineStage, RenderDiagnostics, SaveState, StreamingDiagnostics, ViewportDiagnostics,
-        ViewportRect, WorldLayer, WorldToolsUiPlugin,
+        LayerAvailability, LayerCapabilities, MapProbe, MapReadout, MapViewMode, MapViewport,
+        MapViewportChanged, PipelineStage, RenderDiagnostics, SaveState, StreamingDiagnostics,
+        TerrainProbe, ViewportDiagnostics, ViewportRect, WorldLayer, WorldToolsUiPlugin,
     };
 }

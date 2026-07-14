@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use worldtools_render::MapViewport as RenderViewport;
-use worldtools_ui::MapViewport as UiViewport;
+use worldtools_render::{
+    MapDisplayMode, MapDisplaySettings, MapNavigationSettings, MapViewport as RenderViewport,
+};
+use worldtools_ui::{ActiveTool, EditorUiState, MapViewMode, MapViewport as UiViewport};
 
 pub struct ViewportBridgePlugin;
 
@@ -14,8 +16,11 @@ impl Plugin for ViewportBridgePlugin {
 #[allow(clippy::needless_pass_by_value)] // Bevy system parameters are value wrappers.
 fn sync_viewport(
     ui: Res<UiViewport>,
+    editor: Res<EditorUiState>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut render: ResMut<RenderViewport>,
+    mut navigation: ResMut<MapNavigationSettings>,
+    mut display: ResMut<MapDisplaySettings>,
 ) {
     let Ok(window) = windows.single() else {
         return;
@@ -29,4 +34,10 @@ fn sync_viewport(
     }
     render.input_blocked = ui.input_blocked;
     render.pixels_per_point = window.scale_factor();
+    navigation.primary_pan = editor.active_tool == ActiveTool::Navigate;
+    display.mode = match editor.map_view {
+        MapViewMode::Terrain => MapDisplayMode::Physical,
+        MapViewMode::Elevation => MapDisplayMode::Elevation,
+        MapViewMode::Slope => MapDisplayMode::Slope,
+    };
 }

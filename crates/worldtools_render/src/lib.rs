@@ -1,5 +1,6 @@
 mod blue_noise;
 mod debug;
+mod display;
 mod height_field;
 mod material;
 mod projection;
@@ -11,10 +12,11 @@ mod tile_surface;
 mod view;
 
 pub use debug::{RenderDebugSettings, TileRenderStats};
+pub use display::{MapDisplayMode, MapDisplaySettings};
 pub use height_field::{HeightField, HeightFieldError, HeightFieldUpload};
 pub use material::{DisplayLayerKind, TerrainMaterial, TerrainMaterialParams};
 pub use projection::{MAP_TILE_CELLS, MAX_MAP_LEVEL, MapTileId, MapTilePlacement};
 pub use streaming::{MapTileInvalidation, MapTileStreamer, TileStreamStats, VisibleMapTiles};
 pub use surface::{TerrainSurface, WorldToolsRenderPlugin};
 pub use tile_data::MapTileData;
-pub use view::{MapView, MapViewport};
+pub use view::{MapNavigationSettings, MapView, MapViewport};

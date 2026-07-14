@@ -12,6 +12,7 @@ use bevy::{
 use crate::{
     blue_noise,
     debug::{RenderDebugSettings, TileRenderStats},
+    display::MapDisplaySettings,
     projection::{MAP_TILE_APRON, MAP_TILE_CELLS, MapTileId, MapTilePlacement},
     streaming::{MapTileStreamer, VisibleMapTiles},
     tile_data::MapTileData,
@@ -104,6 +105,7 @@ fn sync_surfaces(
     visible: Res<VisibleMapTiles>,
     streamer: Res<MapTileStreamer>,
     debug: Res<RenderDebugSettings>,
+    display: Res<MapDisplaySettings>,
     view: Res<MapView>,
     viewport: Res<MapViewport>,
     shared: Res<TileRenderAssets>,
@@ -143,7 +145,7 @@ fn sync_surfaces(
         } else if let Some(tile) = rendered.0.get(&placement) {
             next_stats.stale += 1;
             if let Some(mut material) = materials.get_mut(&tile.material) {
-                material.params = tile_params(placement.id, tile.source, *debug, true);
+                material.params = tile_params(placement.id, tile.source, *display, *debug, true);
             }
             if let Ok(mut current) = transforms.get_mut(tile.entity) {
                 *current = transform;
@@ -157,7 +159,7 @@ fn sync_surfaces(
             continue;
         };
         let elevation = gpu_tiles.image_for(source.clone(), &mut images);
-        let params = tile_params(placement.id, source.id, *debug, false);
+        let params = tile_params(placement.id, source.id, *display, *debug, false);
         if let Some(tile) = rendered.0.get_mut(&placement) {
             if let Some(mut material) = materials.get_mut(&tile.material) {
                 material.elevation = elevation;
@@ -227,6 +229,7 @@ fn sync_surfaces(
 fn tile_params(
     desired: MapTileId,
     source: MapTileId,
+    display: MapDisplaySettings,
     debug: RenderDebugSettings,
     stale: bool,
 ) -> TerrainTileMaterialParams {
@@ -258,10 +261,11 @@ fn tile_params(
             f32::from(desired.level),
             f32::from(source.level),
         ),
+        display: Vec4::from_array(display.shader_values()),
     }
 }
 
-#[allow(clippy::cast_precision_loss)] // Level 17 caps tile coordinates below exact f32 integers.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // Convert only camera-relative values to render-space f32.
 fn placement_transform(
     placement: MapTilePlacement,
     view: MapView,
@@ -273,11 +277,10 @@ fn placement_transform(
     let y_extent = placement.id.y_extent() as f32;
     let aspect = viewport_size.x / viewport_size.y.max(1.0);
     let horizontal_span = view.horizontal_span(aspect);
-    let tile_center = Vec2::new(
-        (placement.unwrapped_x as f32 + 0.5) / x_extent,
-        (placement.id.y as f32 + 0.5) / y_extent,
+    let relative = Vec2::new(
+        (((placement.unwrapped_x as f64 + 0.5) / f64::from(x_extent)) - view.center.x) as f32,
+        (((f64::from(placement.id.y) + 0.5) / f64::from(y_extent)) - view.center.y) as f32,
     );
-    let relative = tile_center - view.center;
     let screen = viewport_min
         + Vec2::new(
             (0.5 + relative.x / horizontal_span) * viewport_size.x,
@@ -344,7 +347,13 @@ mod tests {
             x: 14,
             y: 6,
         };
-        let params = tile_params(desired, source, RenderDebugSettings::default(), false);
+        let params = tile_params(
+            desired,
+            source,
+            MapDisplaySettings::default(),
+            RenderDebugSettings::default(),
+            false,
+        );
         assert!((params.sample_rect.z - 64.0).abs() < f32::EPSILON);
         assert!((params.sample_rect.w - 64.0).abs() < f32::EPSILON);
         assert!((params.sample_rect.x - 129.0).abs() < f32::EPSILON);
@@ -372,8 +381,46 @@ mod tests {
             freeze_streaming: false,
         };
 
-        let params = tile_params(desired, source, debug, true);
+        let params = tile_params(desired, source, MapDisplaySettings::default(), debug, true);
         assert_eq!(params.debug, Vec4::new(15.0, 3.0, 3.0, 2.0));
+    }
+
+    #[test]
+    fn display_changes_only_uniform_presentation_values() {
+        let desired = MapTileId {
+            level: 4,
+            x: 14,
+            y: 6,
+        };
+        let source = MapTileId {
+            level: 2,
+            x: 3,
+            y: 1,
+        };
+        let physical = tile_params(
+            desired,
+            source,
+            MapDisplaySettings::default(),
+            RenderDebugSettings::default(),
+            false,
+        );
+        let contours = tile_params(
+            desired,
+            source,
+            MapDisplaySettings {
+                mode: crate::MapDisplayMode::Contours,
+                contour_interval_m: 100.0,
+                ..MapDisplaySettings::default()
+            },
+            RenderDebugSettings::default(),
+            false,
+        );
+
+        assert_eq!(physical.sample_rect, contours.sample_rect);
+        assert_eq!(physical.metrics, contours.metrics);
+        assert_eq!(physical.debug, contours.debug);
+        assert_ne!(physical.display, contours.display);
+        assert_eq!(contours.display, Vec4::new(4.0, 0.0, 100.0, 1.0));
     }
 
     #[test]

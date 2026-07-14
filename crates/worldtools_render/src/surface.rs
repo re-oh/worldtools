@@ -7,7 +7,7 @@ use crate::{
     material::{TerrainMaterial, TerrainMaterialParams},
     streaming::TileStreamingPlugin,
     tile_surface::TileSurfacePlugin,
-    view::{self, MapView, MapViewport},
+    view::{self, MapNavigationSettings, MapNavigationState, MapView, MapViewport},
 };
 
 #[derive(Debug, Resource)]
@@ -25,6 +25,9 @@ impl Plugin for WorldToolsRenderPlugin {
         crate::tile_material::register_shader(app);
         app.init_resource::<MapView>()
             .init_resource::<MapViewport>()
+            .init_resource::<MapNavigationSettings>()
+            .init_resource::<MapNavigationState>()
+            .init_resource::<crate::display::MapDisplaySettings>()
             .init_resource::<RenderDebugSettings>()
             .add_message::<HeightFieldUpload>()
             .add_plugins((
@@ -120,7 +123,7 @@ fn resize_surface(
     transform.scale = size.extend(1.0);
 }
 
-#[allow(clippy::needless_pass_by_value)] // Bevy system parameters are value wrappers.
+#[allow(clippy::needless_pass_by_value, clippy::cast_possible_truncation)] // The legacy full-surface material receives canonical render-space f32 values.
 fn update_material(
     surface: Option<Res<TerrainSurface>>,
     view: Res<MapView>,
@@ -138,8 +141,8 @@ fn update_material(
     let size = viewport.size(fallback);
     let aspect = size.x / size.y.max(1.0);
     material.params.view = Vec4::new(
-        view.center.x,
-        view.center.y,
+        view.center.x.rem_euclid(1.0) as f32,
+        view.center.y as f32,
         view.horizontal_span(aspect),
         view.vertical_span,
     );
