@@ -31,6 +31,8 @@ pub struct TerrainTileMaterial {
     pub elevation: Handle<Image>,
     #[texture(2, filterable = false)]
     pub blue_noise: Handle<Image>,
+    #[texture(3, filterable = false)]
+    pub layer: Handle<Image>,
 }
 
 impl Material2d for TerrainTileMaterial {

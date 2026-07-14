@@ -18,6 +18,7 @@ tracing.workspace = true
 tracing-appender.workspace = true
 worldtools-analysis = { path = "../../crates/worldtools_analysis" }
 worldtools-render = { path = "../../crates/worldtools_render" }
+worldtools-simulation = { path = "../../crates/worldtools_simulation" }
 worldtools-ui = { path = "../../crates/worldtools_ui" }
 worldtools-world = { path = "../../crates/worldtools_world" }
 

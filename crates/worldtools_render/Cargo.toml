@@ -13,6 +13,7 @@ moka.workspace = true
 shade.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+worldtools-simulation.workspace = true
 worldtools-world = { path = "../worldtools_world" }
 
 [lints]

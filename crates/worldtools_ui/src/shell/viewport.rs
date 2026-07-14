@@ -19,7 +19,11 @@ pub fn show(
         .show(root, |ui| {
             let rect = ui.max_rect();
             let response = ui.allocate_rect(rect, Sense::hover());
-            view_selector(&ctx, rect.min + Vec2::splat(8.0), editor, commands);
+            if editor.active_layer == crate::WorldLayer::Elevation {
+                view_selector(&ctx, rect.min + Vec2::splat(8.0), editor, commands);
+            } else {
+                active_layer_badge(&ctx, rect.min + Vec2::splat(8.0), editor.active_layer);
+            }
             let pixels_per_point = ctx.pixels_per_point();
             let logical = ViewportRect {
                 min: [rect.min.x, rect.min.y],
@@ -44,6 +48,22 @@ pub fn show(
                     pixels_per_point,
                 });
             }
+        });
+}
+
+fn active_layer_badge(ctx: &egui::Context, position: egui::Pos2, layer: crate::WorldLayer) {
+    egui::Area::new("worldtools_active_layer_badge".into())
+        .order(Order::Foreground)
+        .fixed_pos(position)
+        .show(ctx, |ui| {
+            egui::Frame::new()
+                .fill(style::BG_PANEL)
+                .stroke(egui::Stroke::new(1.0, style::BORDER))
+                .inner_margin(egui::Margin::symmetric(8, 5))
+                .show(ui, |ui| {
+                    ui.set_min_width(112.0);
+                    ui.label(layer.label()).on_hover_text(layer.description());
+                });
         });
 }
 

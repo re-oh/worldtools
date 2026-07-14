@@ -61,27 +61,26 @@ pub fn show(
                 brush_controls(ui, state, commands);
             } else if state.active_tool == ActiveTool::Inspect {
                 widgets::section_header(ui, "Sample");
-                if let Some(sample) = probe.selected {
+                if let Some(sample) = probe.selected_for(state.active_layer) {
                     widgets::property_row(ui, "Latitude", |ui| {
                         ui.monospace(format!("{:+.4} deg", sample.latitude_degrees));
                     });
                     widgets::property_row(ui, "Longitude", |ui| {
                         ui.monospace(format!("{:+.4} deg", sample.longitude_degrees));
                     });
-                    widgets::property_row(ui, "Elevation", |ui| {
-                        ui.monospace(format!("{:+.0} m", sample.elevation_m));
-                    });
-                    widgets::property_row(ui, "Slope", |ui| {
-                        ui.monospace(format!("{:.1} deg", sample.slope_degrees));
-                    });
-                    widgets::property_row(ui, "Surface", |ui| {
-                        ui.label(if sample.is_water { "Water" } else { "Land" });
-                    });
+                    for reading in &sample.readings {
+                        widgets::property_row(ui, &reading.label, |ui| {
+                            ui.monospace(&reading.value);
+                        });
+                    }
                 } else {
                     ui.label(
-                        egui::RichText::new("Click the map to pin a terrain sample")
-                            .color(TEXT_MUTED)
-                            .italics(),
+                        egui::RichText::new(format!(
+                            "Click the map to pin a {} sample",
+                            state.active_layer.label().to_lowercase()
+                        ))
+                        .color(TEXT_MUTED)
+                        .italics(),
                     );
                 }
             }

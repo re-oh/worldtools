@@ -138,6 +138,20 @@ impl WorldLayer {
     }
 
     #[must_use]
+    pub const fn description(self) -> &'static str {
+        match self {
+            Self::Elevation => "Evolved surface relief and bathymetry",
+            Self::Tectonics => "Plates, boundaries, stress, uplift, and volcanism",
+            Self::Hydrology => "Drainage, rivers, lakes, runoff, and sediment",
+            Self::Climate => "Temperature, precipitation, aridity, and prevailing wind",
+            Self::Soil => "Soil family, depth, texture, fertility, and organic content",
+            Self::Vegetation => "Biome, forest and grass cover, and productivity",
+            Self::Geology => "Bedrock family, crustal age, sediment, and volcanic ash",
+            Self::Resources => "Process-based mineral, fuel, salt, clay, and gemstone deposits",
+        }
+    }
+
+    #[must_use]
     pub const fn index(self) -> usize {
         self as usize
     }

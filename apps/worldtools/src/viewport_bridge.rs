@@ -1,9 +1,14 @@
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use worldtools_render::{
-    MapDisplayMode, MapDisplaySettings, MapNavigationSettings, MapViewport as RenderViewport,
+    MapDisplayMode, MapDisplaySettings, MapNavigationSettings, MapTileStreamer,
+    MapViewport as RenderViewport,
 };
-use worldtools_ui::{ActiveTool, EditorUiState, MapViewMode, MapViewport as UiViewport};
+use worldtools_ui::{
+    ActiveTool, EditorUiState, MapViewMode, MapViewport as UiViewport, WorldLayer,
+};
+
+use crate::layers::simulation_layer;
 
 pub struct ViewportBridgePlugin;
 
@@ -21,6 +26,7 @@ fn sync_viewport(
     mut render: ResMut<RenderViewport>,
     mut navigation: ResMut<MapNavigationSettings>,
     mut display: ResMut<MapDisplaySettings>,
+    mut streamer: ResMut<MapTileStreamer>,
 ) {
     let Ok(window) = windows.single() else {
         return;
@@ -35,9 +41,19 @@ fn sync_viewport(
     render.input_blocked = ui.input_blocked;
     render.pixels_per_point = window.scale_factor();
     navigation.primary_pan = editor.active_tool == ActiveTool::Navigate;
-    display.mode = match editor.map_view {
-        MapViewMode::Terrain => MapDisplayMode::Physical,
-        MapViewMode::Elevation => MapDisplayMode::Elevation,
-        MapViewMode::Slope => MapDisplayMode::Slope,
+    streamer.set_active_layer(simulation_layer(editor.active_layer));
+    display.mode = match editor.active_layer {
+        WorldLayer::Elevation => match editor.map_view {
+            MapViewMode::Terrain => MapDisplayMode::Physical,
+            MapViewMode::Elevation => MapDisplayMode::Elevation,
+            MapViewMode::Slope => MapDisplayMode::Slope,
+        },
+        WorldLayer::Tectonics => MapDisplayMode::Tectonics,
+        WorldLayer::Hydrology => MapDisplayMode::Hydrology,
+        WorldLayer::Climate => MapDisplayMode::Climate,
+        WorldLayer::Soil => MapDisplayMode::Soil,
+        WorldLayer::Vegetation => MapDisplayMode::Vegetation,
+        WorldLayer::Geology => MapDisplayMode::Geology,
+        WorldLayer::Resources => MapDisplayMode::Resources,
     };
 }

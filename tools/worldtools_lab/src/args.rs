@@ -23,6 +23,8 @@ pub enum Command {
     Verify(VerifyArgs),
     /// Compare exhaustive six-face terrain aggregates across a seed range.
     Sweep(SweepArgs),
+    /// Simulate and audit one coupled world-history atlas.
+    World(WorldArgs),
 }
 
 #[derive(Debug, Args)]
@@ -72,6 +74,28 @@ pub struct SweepArgs {
     /// Exhaustive cube-sphere level sampled for every seed (0..=2).
     #[arg(long, default_value_t = 0)]
     pub level: u8,
+    #[arg(long)]
+    pub output: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct WorldArgs {
+    #[arg(long, default_value_t = 1)]
+    pub seed: u64,
+    #[arg(long, default_value_t = 192)]
+    pub width: u32,
+    #[arg(long, default_value_t = 96)]
+    pub height: u32,
+    #[arg(long, default_value_t = 22)]
+    pub plates: u16,
+    #[arg(long, default_value_t = 14)]
+    pub hotspots: u16,
+    #[arg(long, default_value_t = 240)]
+    pub geological_age_myr: u16,
+    #[arg(long, default_value_t = 8)]
+    pub erosion_iterations: u16,
+    #[arg(long, default_value_t = 16)]
+    pub moisture_iterations: u16,
     #[arg(long)]
     pub output: Option<PathBuf>,
 }

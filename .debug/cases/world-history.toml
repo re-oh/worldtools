@@ -1,0 +1,9 @@
+name = "deterministic world-history simulation"
+command = ["cargo", "test", "-p", "worldtools-simulation", "--lib"]
+expected_exit = 0
+timeout_seconds = 180
+repeat = 2
+seed = 91842
+
+[env]
+RUST_BACKTRACE = "full"

@@ -6540,6 +6540,7 @@ dependencies = [
  "tracing-appender",
  "worldtools-analysis",
  "worldtools-render",
+ "worldtools-simulation",
  "worldtools-ui",
  "worldtools-world",
 ]
@@ -6550,6 +6551,7 @@ version = "0.4.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
+ "worldtools-simulation",
  "worldtools-world",
 ]
 
@@ -6566,6 +6568,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "worldtools-analysis",
+ "worldtools-simulation",
  "worldtools-world",
 ]
 
@@ -6580,6 +6583,17 @@ dependencies = [
  "shade",
  "thiserror 2.0.18",
  "tracing",
+ "worldtools-simulation",
+ "worldtools-world",
+]
+
+[[package]]
+name = "worldtools-simulation"
+version = "0.4.0"
+dependencies = [
+ "blake3",
+ "rayon",
+ "serde",
  "worldtools-world",
 ]
 

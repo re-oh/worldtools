@@ -1,9 +1,12 @@
+mod probe;
+
 use bevy::{input::ButtonInput, prelude::*, window::PrimaryWindow};
 use worldtools_render::{MapTileStreamer, MapView, TileStreamStats, VisibleMapTiles};
 use worldtools_ui::{
     ActiveTool, BrushFalloff as UiFalloff, BrushOperation, DirtyRegion, DocumentStatus,
-    EditorCommand, EditorUiState, GenerationActivity, GenerationScope, GenerationStatus, MapProbe,
-    MapReadout, MapViewport as UiViewport, PipelineStage, SaveState, TerrainProbe, WorldLayer,
+    EditorCommand, EditorUiState, GenerationActivity, GenerationScope, GenerationStatus,
+    LayerAvailability, LayerCapabilities, MapProbe, MapReadout, MapViewport as UiViewport,
+    PipelineStage, SaveState, WorldLayer,
 };
 use worldtools_world::{BrushFalloff, EditOperation, GeoPoint, TerrainEdit, angular_distance};
 
@@ -21,76 +24,23 @@ pub struct WorldEditorPlugin;
 
 impl Plugin for WorldEditorPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<EditorSession>().add_systems(
-            Update,
-            (
-                handle_commands,
-                capture_inspection,
-                capture_sculpt_stroke,
-                sync_telemetry,
-            )
-                .chain(),
-        );
+        app.init_resource::<EditorSession>()
+            .add_systems(Startup, publish_layer_capabilities)
+            .add_systems(
+                Update,
+                (
+                    handle_commands,
+                    probe::capture_inspection,
+                    capture_sculpt_stroke,
+                    sync_telemetry,
+                )
+                    .chain(),
+            );
     }
 }
 
-#[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)] // Bevy system parameters are value wrappers.
-fn capture_inspection(
-    buttons: Res<ButtonInput<MouseButton>>,
-    ui: Res<EditorUiState>,
-    viewport: Res<UiViewport>,
-    view: Res<MapView>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    streamer: Res<MapTileStreamer>,
-    readout: Res<MapReadout>,
-    mut probe: ResMut<MapProbe>,
-) {
-    if ui.active_tool != ActiveTool::Inspect || !buttons.just_pressed(MouseButton::Left) {
-        return;
-    }
-    let Ok(window) = windows.single() else {
-        return;
-    };
-    let Some(point) = (!viewport.input_blocked)
-        .then(|| pointer_geo(window, &viewport, *view))
-        .flatten()
-    else {
-        return;
-    };
-
-    let elevation_m = streamer.sample_elevation(point);
-    probe.selected = Some(TerrainProbe {
-        latitude_degrees: point.latitude.to_degrees(),
-        longitude_degrees: point.longitude.to_degrees(),
-        elevation_m,
-        slope_degrees: sample_slope(
-            point,
-            &streamer,
-            readout.meters_per_pixel.clamp(1.0, 10_000.0),
-        ),
-        is_water: elevation_m < 0.0,
-    });
-}
-
-fn sample_slope(point: GeoPoint, streamer: &MapTileStreamer, baseline_m: f64) -> f64 {
-    let angular = baseline_m / PLANET_RADIUS_M;
-    let latitude = point.latitude;
-    let longitude = point.longitude;
-    let longitude_step = angular / latitude.cos().abs().max(0.05);
-    let north = GeoPoint::from_radians(
-        (latitude + angular).min(std::f64::consts::FRAC_PI_2),
-        longitude,
-    );
-    let south = GeoPoint::from_radians(
-        (latitude - angular).max(-std::f64::consts::FRAC_PI_2),
-        longitude,
-    );
-    let east = GeoPoint::from_radians(latitude, longitude + longitude_step);
-    let west = GeoPoint::from_radians(latitude, longitude - longitude_step);
-    let dz_north = f64::from(streamer.sample_elevation(north) - streamer.sample_elevation(south));
-    let dz_east = f64::from(streamer.sample_elevation(east) - streamer.sample_elevation(west));
-    let gradient = dz_north.hypot(dz_east) / (2.0 * baseline_m);
-    gradient.atan().to_degrees()
+fn publish_layer_capabilities(mut capabilities: ResMut<LayerCapabilities>) {
+    capabilities.set_all(LayerAvailability::Available);
 }
 
 #[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)] // Bevy system parameters are value wrappers.

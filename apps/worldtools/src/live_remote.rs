@@ -15,8 +15,10 @@ use bevy::{
     },
 };
 use serde_json::{Value, json};
-use worldtools_render::{MapView, RenderDebugSettings, TileRenderStats, TileStreamStats};
-use worldtools_ui::DocumentStatus;
+use worldtools_render::{
+    MapTileStreamer, MapView, RenderDebugSettings, TileRenderStats, TileStreamStats,
+};
+use worldtools_ui::{DebugTelemetry, DocumentStatus};
 
 const ENABLE_ENV: &str = "WORLDTOOLS_BRP";
 const ALLOW_WRITE_ENV: &str = "WORLDTOOLS_BRP_ALLOW_WRITE";
@@ -152,7 +154,11 @@ fn worldtools_status(
     streaming: Res<TileStreamStats>,
     renderer: Res<TileRenderStats>,
     debug: Res<RenderDebugSettings>,
+    streamer: Res<MapTileStreamer>,
+    telemetry: Res<DebugTelemetry>,
 ) -> BrpResult {
+    let snapshot = streamer.snapshot();
+    let simulation = snapshot.simulation_settings();
     Ok(json!({
         "document": {
             "name": document.name,
@@ -164,6 +170,14 @@ fn worldtools_status(
         "view": {
             "center": [view.center.x, view.center.y],
             "vertical_span": view.vertical_span,
+        },
+        "simulation": {
+            "active_layer": streamer.active_layer().label(),
+            "revision": snapshot.revision(),
+            "atlas": [simulation.atlas_width, simulation.atlas_height],
+            "geological_age_myr": simulation.geological_age_myr,
+            "erosion_iterations": simulation.erosion_iterations,
+            "moisture_iterations": simulation.moisture_iterations,
         },
         "streaming": {
             "level": streaming.level,
@@ -188,6 +202,14 @@ fn worldtools_status(
             "missing": renderer.missing,
             "gpu_resident": renderer.gpu_resident,
         },
+        "performance": telemetry.frame.as_ref().map(|frame| json!({
+            "fps": frame.frames_per_second,
+            "frame_time_ms": frame.frame_time_ms,
+            "frame_number": frame.frame_number,
+            "entity_count": frame.entity_count,
+            "cpu_percent": frame.process_cpu_percent,
+            "memory_gib": frame.process_memory_gib,
+        })),
         "debug": {
             "tile_borders": debug.tile_borders,
             "lod_tint": debug.lod_tint,

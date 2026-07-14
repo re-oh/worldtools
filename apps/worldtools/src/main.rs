@@ -1,6 +1,7 @@
 mod debug_tools;
 mod diagnostics;
 mod editor;
+mod layers;
 #[cfg(feature = "live-debug")]
 mod live_remote;
 mod viewport_bridge;

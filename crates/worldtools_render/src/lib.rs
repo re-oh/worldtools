@@ -20,3 +20,4 @@ pub use streaming::{MapTileInvalidation, MapTileStreamer, TileStreamStats, Visib
 pub use surface::{TerrainSurface, WorldToolsRenderPlugin};
 pub use tile_data::MapTileData;
 pub use view::{MapNavigationSettings, MapView, MapViewport};
+pub use worldtools_simulation::{WorldDataLayer, WorldSample};

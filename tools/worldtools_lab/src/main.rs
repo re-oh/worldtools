@@ -6,6 +6,7 @@ mod report;
 mod sweep;
 mod tile_set;
 mod verify;
+mod world;
 
 use anyhow::Result;
 use args::{Cli, Command};
@@ -23,5 +24,6 @@ fn main() -> Result<()> {
         Command::Tile(arguments) => preview::tile(&arguments),
         Command::Verify(arguments) => verify::verify(&arguments),
         Command::Sweep(arguments) => sweep::sweep(&arguments),
+        Command::World(arguments) => world::world(&arguments),
     }
 }

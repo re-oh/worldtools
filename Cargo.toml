@@ -4,6 +4,7 @@ members = [
   "apps/worldtools",
   "crates/worldtools_analysis",
   "crates/worldtools_render",
+  "crates/worldtools_simulation",
   "crates/worldtools_ui",
   "crates/worldtools_world",
   "tools/worldtools_lab",
@@ -58,6 +59,8 @@ tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
 toml = "0.9.8"
 wait-timeout = "0.2.1"
+worldtools-simulation = { path = "crates/worldtools_simulation" }
+worldtools-world = { path = "crates/worldtools_world" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

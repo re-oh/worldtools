@@ -15,6 +15,7 @@ serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 worldtools-analysis = { path = "../../crates/worldtools_analysis" }
+worldtools-simulation.workspace = true
 worldtools-world = { path = "../../crates/worldtools_world" }
 
 [lints]

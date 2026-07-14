@@ -50,8 +50,9 @@ pub mod prelude {
         DebugRenderOptions, DebugTab, DebugTelemetry, DebugUiState, DirtyRegion, DocumentStatus,
         DrawerTab, EditorCommand, EditorUiState, FrameDiagnostics, GenerationActivity,
         GenerationScope, GenerationStatus, JobId, JobQueue, JobState, JobSummary,
-        LayerAvailability, LayerCapabilities, MapProbe, MapReadout, MapViewMode, MapViewport,
-        MapViewportChanged, PipelineStage, RenderDiagnostics, SaveState, StreamingDiagnostics,
-        TerrainProbe, ViewportDiagnostics, ViewportRect, WorldLayer, WorldToolsUiPlugin,
+        LayerAvailability, LayerCapabilities, LayerProbe, MapProbe, MapReadout, MapViewMode,
+        MapViewport, MapViewportChanged, PipelineStage, ProbeReading, RenderDiagnostics, SaveState,
+        StreamingDiagnostics, TerrainProbe, ViewportDiagnostics, ViewportRect, WorldLayer,
+        WorldToolsUiPlugin,
     };
 }

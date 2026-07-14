@@ -83,46 +83,9 @@ struct SnapshotContext<'a> {
 }
 
 fn snapshot_value(context: &SnapshotContext<'_>) -> Value {
-    let resident = context
-        .streamer
-        .resident_tile_ids()
-        .into_iter()
-        .map(|id| tile_value(id, context.streamer.tile_revision(id)))
-        .collect::<Vec<_>>();
-    let in_flight = context
-        .streamer
-        .in_flight_tile_ids()
-        .into_iter()
-        .map(|id| tile_value(id, context.streamer.tile_revision(id)))
-        .collect::<Vec<_>>();
-    let layers = WorldLayer::ALL
-        .into_iter()
-        .map(|layer| {
-            let availability = context.capabilities.availability(layer);
-            json!({
-                "name": layer.label(),
-                "available": availability.is_available(),
-                "reason": availability.reason(),
-                "visible": context.editor.layer_visible(layer),
-                "opacity": context.editor.layer_opacity(layer),
-            })
-        })
-        .collect::<Vec<_>>();
-    let mut recent_events = context
-        .events
-        .iter()
-        .rev()
-        .take(200)
-        .map(|event| {
-            json!({
-                "elapsed_seconds": event.elapsed_seconds,
-                "level": event.level.label(),
-                "target": event.target,
-                "message": event.message,
-            })
-        })
-        .collect::<Vec<_>>();
-    recent_events.reverse();
+    let (resident, in_flight) = tile_values(context.streamer);
+    let layers = layer_values(context);
+    let recent_events = recent_event_values(context.events);
 
     json!({
         "schema": "worldtools.diagnostic-snapshot.v1",
@@ -157,6 +120,7 @@ fn snapshot_value(context: &SnapshotContext<'_>) -> Value {
                 .from_stage
                 .map(|stage| stage.to_string()),
         },
+        "simulation": simulation_value(context.streamer),
         "view": {
             "center": context.view.center.to_array(),
             "vertical_span": context.view.vertical_span,
@@ -184,6 +148,79 @@ fn snapshot_value(context: &SnapshotContext<'_>) -> Value {
             "recent": recent_events,
         },
     })
+}
+
+fn tile_values(streamer: &MapTileStreamer) -> (Vec<Value>, Vec<Value>) {
+    let values = |ids: Vec<MapTileId>| {
+        ids.into_iter()
+            .map(|id| tile_value(id, streamer.tile_revision(id)))
+            .collect()
+    };
+    (
+        values(streamer.resident_tile_ids()),
+        values(streamer.in_flight_tile_ids()),
+    )
+}
+
+fn layer_values(context: &SnapshotContext<'_>) -> Vec<Value> {
+    WorldLayer::ALL
+        .into_iter()
+        .map(|layer| {
+            let availability = context.capabilities.availability(layer);
+            json!({
+                "name": layer.label(),
+                "available": availability.is_available(),
+                "reason": availability.reason(),
+                "visible": context.editor.layer_visible(layer),
+                "opacity": context.editor.layer_opacity(layer),
+            })
+        })
+        .collect()
+}
+
+fn recent_event_values(events: &DebugEventLog) -> Vec<Value> {
+    let mut values = events
+        .iter()
+        .rev()
+        .take(200)
+        .map(|event| {
+            json!({
+                "elapsed_seconds": event.elapsed_seconds,
+                "level": event.level.label(),
+                "target": event.target,
+                "message": event.message,
+            })
+        })
+        .collect::<Vec<_>>();
+    values.reverse();
+    values
+}
+
+fn simulation_value(streamer: &MapTileStreamer) -> Value {
+    let world = streamer.snapshot();
+    let settings = world.simulation_settings();
+    json!({
+        "active_layer": streamer.active_layer().label(),
+        "revision": world.revision(),
+        "fingerprint": fingerprint_hex(world.fingerprint()),
+        "atlas_width": settings.atlas_width,
+        "atlas_height": settings.atlas_height,
+        "plate_count": settings.plate_count,
+        "hotspot_count": settings.hotspot_count,
+        "geological_age_myr": settings.geological_age_myr,
+        "erosion_iterations": settings.erosion_iterations,
+        "moisture_iterations": settings.moisture_iterations,
+    })
+}
+
+fn fingerprint_hex(fingerprint: [u8; 32]) -> String {
+    use std::fmt::Write as _;
+
+    let mut encoded = String::with_capacity(fingerprint.len() * 2);
+    for byte in fingerprint {
+        write!(&mut encoded, "{byte:02x}").expect("writing to a string cannot fail");
+    }
+    encoded
 }
 
 fn tile_value(id: MapTileId, revision: u64) -> Value {

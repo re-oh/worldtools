@@ -13,6 +13,13 @@ pub enum MapDisplayMode {
     Relief = 2,
     Slope = 3,
     Contours = 4,
+    Tectonics = 5,
+    Hydrology = 6,
+    Climate = 7,
+    Soil = 8,
+    Vegetation = 9,
+    Geology = 10,
+    Resources = 11,
 }
 
 impl MapDisplayMode {
@@ -28,6 +35,13 @@ impl MapDisplayMode {
             Self::Relief => 2.0,
             Self::Slope => 3.0,
             Self::Contours => 4.0,
+            Self::Tectonics => 5.0,
+            Self::Hydrology => 6.0,
+            Self::Climate => 7.0,
+            Self::Soil => 8.0,
+            Self::Vegetation => 9.0,
+            Self::Geology => 10.0,
+            Self::Resources => 11.0,
         }
     }
 }
@@ -92,6 +106,13 @@ mod tests {
         assert_eq!(MapDisplayMode::Relief.shader_id(), 2);
         assert_eq!(MapDisplayMode::Slope.shader_id(), 3);
         assert_eq!(MapDisplayMode::Contours.shader_id(), 4);
+        assert_eq!(MapDisplayMode::Tectonics.shader_id(), 5);
+        assert_eq!(MapDisplayMode::Hydrology.shader_id(), 6);
+        assert_eq!(MapDisplayMode::Climate.shader_id(), 7);
+        assert_eq!(MapDisplayMode::Soil.shader_id(), 8);
+        assert_eq!(MapDisplayMode::Vegetation.shader_id(), 9);
+        assert_eq!(MapDisplayMode::Geology.shader_id(), 10);
+        assert_eq!(MapDisplayMode::Resources.shader_id(), 11);
     }
 
     #[test]

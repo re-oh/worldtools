@@ -174,6 +174,10 @@ impl LayerCapabilities {
     pub fn set(&mut self, layer: WorldLayer, availability: LayerAvailability) {
         self.layers[layer.index()] = availability;
     }
+
+    pub fn set_all(&mut self, availability: LayerAvailability) {
+        self.layers.fill(availability);
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

@@ -7,9 +7,10 @@ use std::{
 use bevy::{prelude::*, tasks::AsyncComputeTaskPool, window::PrimaryWindow};
 use crossbeam_channel::{Receiver, Sender, TryRecvError, bounded};
 use moka::sync::Cache;
+use worldtools_simulation::{SimulationSettings, WorldDataLayer, WorldSample, WorldSnapshot};
 use worldtools_world::{
-    EditId, EditJournal, EditJournalError, EditRevision, GeoPoint, TerrainEdit, TerrainGenerator,
-    TerrainSettings, WorldSeed,
+    EditId, EditJournal, EditJournalError, EditRevision, GeoPoint, TerrainEdit, TerrainSettings,
+    WorldSeed,
 };
 
 use crate::{
@@ -52,8 +53,8 @@ pub struct MapTileInvalidation {
 
 #[derive(Resource)]
 pub struct MapTileStreamer {
-    seed: WorldSeed,
-    settings: TerrainSettings,
+    snapshot: Arc<WorldSnapshot>,
+    active_layer: WorldDataLayer,
     edits: EditJournal,
     cache: Cache<MapTileId, Arc<MapTileData>>,
     in_flight: HashSet<MapTileId>,
@@ -78,10 +79,35 @@ impl Default for MapTileStreamer {
 impl MapTileStreamer {
     #[must_use]
     pub fn new(seed: WorldSeed, settings: TerrainSettings) -> Self {
+        Self::with_simulation_settings(seed, settings, SimulationSettings::default())
+    }
+
+    #[must_use]
+    pub fn with_simulation_settings(
+        seed: WorldSeed,
+        settings: TerrainSettings,
+        simulation_settings: SimulationSettings,
+    ) -> Self {
+        let started = Instant::now();
+        let snapshot = Arc::new(WorldSnapshot::generate(seed, settings, simulation_settings));
+        let generated_in = started.elapsed();
+        tracing::info!(
+            target: "worldtools_render::simulation",
+            revision = snapshot.revision(),
+            atlas_width = snapshot.grid().width(),
+            atlas_height = snapshot.grid().height(),
+            duration_ms = generated_in.as_secs_f64() * 1_000.0,
+            "world-history snapshot generated"
+        );
+        Self::from_snapshot(snapshot)
+    }
+
+    #[must_use]
+    pub fn from_snapshot(snapshot: Arc<WorldSnapshot>) -> Self {
         let (sender, receiver) = bounded(MAX_IN_FLIGHT * 2);
         Self {
-            seed,
-            settings,
+            snapshot,
+            active_layer: WorldDataLayer::Elevation,
             edits: EditJournal::new(),
             cache: Cache::builder().max_capacity(MAX_RESIDENT_TILES).build(),
             in_flight: HashSet::new(),
@@ -99,13 +125,56 @@ impl MapTileStreamer {
     }
 
     #[must_use]
+    pub fn snapshot(&self) -> &WorldSnapshot {
+        self.snapshot.as_ref()
+    }
+
+    #[must_use]
+    pub const fn active_layer(&self) -> WorldDataLayer {
+        self.active_layer
+    }
+
+    /// Selects the dataset generated into future tile pages.
+    ///
+    /// Existing asynchronous work remains tracked until it reports back, but
+    /// its revision and layer identity prevent it from entering the cache.
+    pub fn set_active_layer(&mut self, layer: WorldDataLayer) -> bool {
+        if self.active_layer == layer {
+            return false;
+        }
+
+        let previous = self.active_layer;
+        self.active_layer = layer;
+        let ids = self
+            .cache
+            .iter()
+            .map(|(id, _)| *id)
+            .chain(self.in_flight.iter().copied())
+            .collect::<HashSet<_>>();
+        let invalidated = self.invalidate_ids(ids);
+        if self.trace_streaming {
+            tracing::debug!(
+                target: "worldtools_render::streaming",
+                previous = previous.label(),
+                current = layer.label(),
+                invalidated,
+                in_flight = self.in_flight.len(),
+                "active world-data layer changed"
+            );
+        }
+        true
+    }
+
+    #[must_use]
     pub fn get(&self, id: MapTileId) -> Option<Arc<MapTileData>> {
-        self.cache.get(&id)
+        self.cache
+            .get(&id)
+            .filter(|tile| tile.layer == self.active_layer)
     }
 
     #[must_use]
     pub fn contains(&self, id: MapTileId) -> bool {
-        self.cache.contains_key(&id)
+        self.get(id).is_some()
     }
 
     /// Returns a stable, sorted view of cached page identifiers for diagnostics.
@@ -224,9 +293,23 @@ impl MapTileStreamer {
 
     #[must_use]
     pub fn sample_elevation(&self, point: GeoPoint) -> f32 {
-        let base = TerrainGenerator::new(self.seed, self.settings).sample_geo(point);
-        self.edits
-            .apply_elevation(point.direction(), base, self.settings.planet_radius_m)
+        let base = self.snapshot.sample_elevation(point);
+        self.edits.apply_elevation(
+            point.direction(),
+            base,
+            self.snapshot.terrain_settings().planet_radius_m,
+        )
+    }
+
+    #[must_use]
+    pub fn sample_world(&self, point: GeoPoint) -> WorldSample {
+        let mut sample = self.snapshot.sample(point);
+        sample.elevation_m = self.edits.apply_elevation(
+            point.direction(),
+            sample.elevation_m,
+            self.snapshot.terrain_settings().planet_radius_m,
+        );
+        sample
     }
 
     fn tiles_intersecting(&self, edit: &TerrainEdit) -> HashSet<MapTileId> {
@@ -236,7 +319,11 @@ impl MapTileStreamer {
             .chain(self.in_flight.iter().copied())
             .filter(|id| {
                 let (center, radius) = id.bounding_cap();
-                edit.might_affect_cap(center.direction(), radius, self.settings.planet_radius_m)
+                edit.might_affect_cap(
+                    center.direction(),
+                    radius,
+                    self.snapshot.terrain_settings().planet_radius_m,
+                )
             })
             .collect()
     }
@@ -266,12 +353,12 @@ impl MapTileStreamer {
     }
 
     fn request(&mut self, id: MapTileId) {
-        if self.cache.contains_key(&id) || !self.in_flight.insert(id) {
+        if self.get(id).is_some() || !self.in_flight.insert(id) {
             return;
         }
         let revision = self.revisions.get(&id).copied().unwrap_or_default();
-        let seed = self.seed;
-        let settings = self.settings;
+        let snapshot = Arc::clone(&self.snapshot);
+        let layer = self.active_layer;
         let edits = self.edits.clone();
         let sender = self.sender.clone();
         let trace_streaming = self.trace_streaming;
@@ -282,6 +369,7 @@ impl MapTileStreamer {
                 level = id.level,
                 x = id.x,
                 y = id.y,
+                layer = layer.label(),
                 revision,
                 in_flight = self.in_flight.len(),
                 "tile generation requested"
@@ -296,10 +384,13 @@ impl MapTileStreamer {
                     level = id.level,
                     x = id.x,
                     y = id.y,
+                    layer = layer.label(),
                     revision
                 );
                 let _guard = trace_streaming.then(|| span.enter());
-                let data = Arc::new(MapTileData::generate_with_edits(id, seed, settings, &edits));
+                let data = Arc::new(MapTileData::generate_from_snapshot_with_edits(
+                    id, &snapshot, layer, &edits,
+                ));
                 let generated_in = started.elapsed();
                 if trace_streaming {
                     tracing::debug!(
@@ -311,6 +402,7 @@ impl MapTileStreamer {
                 if sender
                     .send(TileResult {
                         id,
+                        layer,
                         revision,
                         data,
                         generated_in,
@@ -333,9 +425,19 @@ impl MapTileStreamer {
 #[derive(Debug)]
 struct TileResult {
     id: MapTileId,
+    layer: WorldDataLayer,
     revision: u64,
     data: Arc<MapTileData>,
     generated_in: Duration,
+}
+
+fn result_matches_active_layer(
+    result_revision: u64,
+    result_layer: WorldDataLayer,
+    current_revision: u64,
+    active_layer: WorldDataLayer,
+) -> bool {
+    result_revision == current_revision && result_layer == active_layer
 }
 
 pub(crate) struct TileStreamingPlugin;
@@ -391,7 +493,12 @@ fn receive_tiles(mut streamer: ResMut<MapTileStreamer>, debug: Res<RenderDebugSe
                     .get(&result.id)
                     .copied()
                     .unwrap_or_default();
-                if result.revision == current_revision {
+                if result_matches_active_layer(
+                    result.revision,
+                    result.layer,
+                    current_revision,
+                    streamer.active_layer,
+                ) {
                     streamer.last_generation = result.generated_in;
                     streamer.max_generation = streamer.max_generation.max(result.generated_in);
                     if streamer.trace_streaming {
@@ -400,6 +507,7 @@ fn receive_tiles(mut streamer: ResMut<MapTileStreamer>, debug: Res<RenderDebugSe
                             level = result.id.level,
                             x = result.id.x,
                             y = result.id.y,
+                            layer = result.layer.label(),
                             revision = result.revision,
                             duration_ms = result.generated_in.as_secs_f64() * 1_000.0,
                             "tile result accepted"
@@ -414,6 +522,8 @@ fn receive_tiles(mut streamer: ResMut<MapTileStreamer>, debug: Res<RenderDebugSe
                             level = result.id.level,
                             x = result.id.x,
                             y = result.id.y,
+                            result_layer = result.layer.label(),
+                            active_layer = streamer.active_layer.label(),
                             result_revision = result.revision,
                             current_revision,
                             "stale tile result discarded"
@@ -469,7 +579,7 @@ fn request_tiles(
         let candidates = request_priority(&visible.0);
         for id in candidates
             .into_iter()
-            .filter(|id| !streamer.cache.contains_key(id) && !streamer.in_flight.contains(id))
+            .filter(|id| streamer.get(*id).is_none() && !streamer.in_flight.contains(id))
             .take(available)
             .collect::<Vec<_>>()
         {
@@ -541,7 +651,32 @@ fn request_priority(plan: &TilePlan) -> Vec<MapTileId> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::OnceLock;
+
     use super::*;
+
+    fn test_snapshot() -> Arc<WorldSnapshot> {
+        static SNAPSHOT: OnceLock<Arc<WorldSnapshot>> = OnceLock::new();
+        Arc::clone(SNAPSHOT.get_or_init(|| {
+            Arc::new(WorldSnapshot::generate(
+                WorldSeed(17),
+                TerrainSettings::default(),
+                SimulationSettings {
+                    atlas_width: 32,
+                    atlas_height: 16,
+                    plate_count: 4,
+                    hotspot_count: 1,
+                    geological_age_myr: 10,
+                    erosion_iterations: 1,
+                    moisture_iterations: 4,
+                },
+            ))
+        }))
+    }
+
+    fn test_streamer() -> MapTileStreamer {
+        MapTileStreamer::from_snapshot(test_snapshot())
+    }
 
     #[test]
     fn roots_and_desired_tiles_are_requested_before_intermediate_fallbacks() {
@@ -564,7 +699,7 @@ mod tests {
 
     #[test]
     fn diagnostic_tile_lists_are_stable_and_revisions_are_visible() {
-        let mut streamer = MapTileStreamer::default();
+        let mut streamer = test_streamer();
         let high = MapTileId {
             level: 2,
             x: 2,
@@ -599,9 +734,84 @@ mod tests {
     }
 
     #[test]
+    fn layer_switch_invalidates_pages_without_forgetting_running_work() {
+        let mut streamer = test_streamer();
+        let id = MapTileId {
+            level: 0,
+            x: 0,
+            y: 0,
+        };
+        streamer.cache.insert(
+            id,
+            Arc::new(MapTileData::generate(
+                id,
+                WorldSeed(1),
+                TerrainSettings::default(),
+            )),
+        );
+        streamer.in_flight.insert(id);
+
+        assert!(streamer.set_active_layer(WorldDataLayer::Climate));
+        assert_eq!(streamer.active_layer(), WorldDataLayer::Climate);
+        assert!(streamer.get(id).is_none());
+        assert!(streamer.in_flight.contains(&id));
+        assert_eq!(streamer.tile_revision(id), 1);
+        assert!(!streamer.set_active_layer(WorldDataLayer::Climate));
+        assert_eq!(streamer.tile_revision(id), 1);
+    }
+
+    #[test]
+    fn tile_pages_and_point_samples_share_the_snapshot() {
+        let streamer = test_streamer();
+        let id = MapTileId {
+            level: 0,
+            x: 0,
+            y: 0,
+        };
+        let tile =
+            MapTileData::generate_from_snapshot(id, streamer.snapshot(), WorldDataLayer::Climate);
+        let center = GeoPoint::from_degrees(0.0, 0.0);
+
+        assert_eq!(tile.layer, WorldDataLayer::Climate);
+        assert!(tile.samples().iter().all(|value| value.is_finite()));
+        assert!(
+            tile.layer_samples()
+                .iter()
+                .flatten()
+                .all(|value| value.is_finite())
+        );
+        assert_eq!(
+            streamer.sample_elevation(center).to_bits(),
+            streamer.snapshot().sample(center).elevation_m.to_bits()
+        );
+    }
+
+    #[test]
     fn frozen_scheduler_stops_new_work_without_changing_the_limit() {
         assert_eq!(request_capacity(true, 0), 0);
         assert_eq!(request_capacity(false, 3), MAX_IN_FLIGHT - 3);
         assert_eq!(request_capacity(false, MAX_IN_FLIGHT + 1), 0);
+    }
+
+    #[test]
+    fn result_acceptance_requires_both_revision_and_layer() {
+        assert!(result_matches_active_layer(
+            4,
+            WorldDataLayer::Soil,
+            4,
+            WorldDataLayer::Soil
+        ));
+        assert!(!result_matches_active_layer(
+            3,
+            WorldDataLayer::Soil,
+            4,
+            WorldDataLayer::Soil
+        ));
+        assert!(!result_matches_active_layer(
+            4,
+            WorldDataLayer::Geology,
+            4,
+            WorldDataLayer::Soil
+        ));
     }
 }

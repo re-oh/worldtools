@@ -12,13 +12,14 @@ use bevy::{
 use crate::{
     blue_noise,
     debug::{RenderDebugSettings, TileRenderStats},
-    display::MapDisplaySettings,
+    display::{MapDisplayMode, MapDisplaySettings},
     projection::{MAP_TILE_APRON, MAP_TILE_CELLS, MapTileId, MapTilePlacement},
     streaming::{MapTileStreamer, VisibleMapTiles},
     tile_data::MapTileData,
     tile_material::{TerrainTileMaterial, TerrainTileMaterialParams},
     view::{MapView, MapViewport},
 };
+use worldtools_simulation::WorldDataLayer;
 
 const PLANET_RADIUS_M: f32 = 6_371_000.0;
 
@@ -31,31 +32,43 @@ struct TileRenderAssets {
 #[derive(Debug)]
 struct GpuTile {
     data: Arc<MapTileData>,
-    image: Handle<Image>,
+    elevation: Handle<Image>,
+    layer: Handle<Image>,
 }
 
 #[derive(Default, Resource)]
 struct GpuTileCache(HashMap<MapTileId, GpuTile>);
 
 impl GpuTileCache {
-    fn image_for(&mut self, data: Arc<MapTileData>, images: &mut Assets<Image>) -> Handle<Image> {
+    fn images_for(
+        &mut self,
+        data: Arc<MapTileData>,
+        images: &mut Assets<Image>,
+    ) -> (Handle<Image>, Handle<Image>) {
         use std::collections::hash_map::Entry;
 
         match self.0.entry(data.id) {
             Entry::Occupied(mut entry) => {
                 if !Arc::ptr_eq(&entry.get().data, &data) {
-                    let image = images.add(data.to_image());
-                    entry.insert(GpuTile { data, image });
+                    let elevation = images.add(data.elevation_image());
+                    let layer = images.add(data.layer_image());
+                    entry.insert(GpuTile {
+                        data,
+                        elevation,
+                        layer,
+                    });
                 }
-                entry.get().image.clone()
+                (entry.get().elevation.clone(), entry.get().layer.clone())
             }
             Entry::Vacant(entry) => {
-                let image = images.add(data.to_image());
+                let elevation = images.add(data.elevation_image());
+                let layer = images.add(data.layer_image());
                 entry.insert(GpuTile {
                     data,
-                    image: image.clone(),
+                    elevation: elevation.clone(),
+                    layer: layer.clone(),
                 });
-                image
+                (elevation, layer)
             }
         }
     }
@@ -66,6 +79,7 @@ struct RenderedTile {
     entity: Entity,
     material: Handle<TerrainTileMaterial>,
     source: MapTileId,
+    layer: WorldDataLayer,
 }
 
 #[derive(Default, Resource)]
@@ -145,7 +159,13 @@ fn sync_surfaces(
         } else if let Some(tile) = rendered.0.get(&placement) {
             next_stats.stale += 1;
             if let Some(mut material) = materials.get_mut(&tile.material) {
-                material.params = tile_params(placement.id, tile.source, *display, *debug, true);
+                material.params = tile_params(
+                    placement.id,
+                    tile.source,
+                    stale_display(*display, tile.layer, streamer.active_layer()),
+                    *debug,
+                    true,
+                );
             }
             if let Ok(mut current) = transforms.get_mut(tile.entity) {
                 *current = transform;
@@ -158,14 +178,16 @@ fn sync_surfaces(
             next_stats.missing += 1;
             continue;
         };
-        let elevation = gpu_tiles.image_for(source.clone(), &mut images);
+        let (elevation, layer) = gpu_tiles.images_for(source.clone(), &mut images);
         let params = tile_params(placement.id, source.id, *display, *debug, false);
         if let Some(tile) = rendered.0.get_mut(&placement) {
             if let Some(mut material) = materials.get_mut(&tile.material) {
                 material.elevation = elevation;
+                material.layer = layer;
                 material.params = params;
             }
             tile.source = source.id;
+            tile.layer = source.layer;
             if let Ok(mut current) = transforms.get_mut(tile.entity) {
                 *current = transform;
             }
@@ -174,6 +196,7 @@ fn sync_surfaces(
                 params,
                 elevation,
                 blue_noise: shared.blue_noise.clone(),
+                layer,
             });
             let entity = commands
                 .spawn((
@@ -192,6 +215,7 @@ fn sync_surfaces(
                     entity,
                     material,
                     source: source.id,
+                    layer: source.layer,
                 },
             );
         }
@@ -223,6 +247,21 @@ fn sync_surfaces(
         );
     }
     *stats = next_stats;
+}
+
+fn stale_display(
+    display: MapDisplaySettings,
+    resident_layer: WorldDataLayer,
+    active_layer: WorldDataLayer,
+) -> MapDisplaySettings {
+    if resident_layer == active_layer {
+        display
+    } else {
+        MapDisplaySettings {
+            mode: MapDisplayMode::Physical,
+            ..display
+        }
+    }
 }
 
 #[allow(clippy::cast_precision_loss)] // Level 17 caps tile coordinates below exact f32 integers.
@@ -327,12 +366,14 @@ mod tests {
         let mut images = Assets::<Image>::default();
         let mut cache = GpuTileCache::default();
 
-        let first_image = cache.image_for(first.clone(), &mut images);
-        let reused_image = cache.image_for(first, &mut images);
-        let replacement_image = cache.image_for(replacement, &mut images);
+        let first_image = cache.images_for(first.clone(), &mut images);
+        let reused_image = cache.images_for(first, &mut images);
+        let replacement_image = cache.images_for(replacement, &mut images);
 
-        assert_eq!(first_image.id(), reused_image.id());
-        assert_ne!(first_image.id(), replacement_image.id());
+        assert_eq!(first_image.0.id(), reused_image.0.id());
+        assert_eq!(first_image.1.id(), reused_image.1.id());
+        assert_ne!(first_image.0.id(), replacement_image.0.id());
+        assert_ne!(first_image.1.id(), replacement_image.1.id());
     }
 
     #[test]
@@ -421,6 +462,23 @@ mod tests {
         assert_eq!(physical.debug, contours.debug);
         assert_ne!(physical.display, contours.display);
         assert_eq!(contours.display, Vec4::new(4.0, 0.0, 100.0, 1.0));
+    }
+
+    #[test]
+    fn stale_overlay_data_uses_physical_elevation_until_replaced() {
+        let climate = MapDisplaySettings {
+            mode: MapDisplayMode::Climate,
+            ..MapDisplaySettings::default()
+        };
+
+        assert_eq!(
+            stale_display(climate, WorldDataLayer::Tectonics, WorldDataLayer::Climate).mode,
+            MapDisplayMode::Physical
+        );
+        assert_eq!(
+            stale_display(climate, WorldDataLayer::Climate, WorldDataLayer::Climate).mode,
+            MapDisplayMode::Climate
+        );
     }
 
     #[test]
