@@ -124,6 +124,17 @@ fn layer_row(
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
         let selected = state.active_layer == layer;
+        let active = ui.ctx().animate_bool_with_time(
+            egui::Id::new(("worldtools_layer_active", layer.index())),
+            selected,
+            0.14,
+        );
+        let (strip, _) = ui.allocate_exact_size(Vec2::new(3.0, 22.0), egui::Sense::hover());
+        ui.painter().rect_filled(
+            strip,
+            0.0,
+            style::layer_color(layer).gamma_multiply(0.32 + active * 0.68),
+        );
         let response = ui
             .add_enabled_ui(availability.is_available(), |ui| {
                 ui.add_sized(

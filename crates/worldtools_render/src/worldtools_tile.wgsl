@@ -5,6 +5,9 @@ struct TerrainTileMaterialParams {
     metrics: vec4<f32>,
     debug: vec4<f32>,
     display: vec4<f32>,
+    style: vec4<f32>,
+    lighting: vec4<f32>,
+    world: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0)
@@ -79,6 +82,16 @@ fn cubic_vec4(
         (-a + 3.0 * b - 3.0 * c + d) * t3);
 }
 
+fn bounded_cubic_vec4(
+    a: vec4<f32>,
+    b: vec4<f32>,
+    c: vec4<f32>,
+    d: vec4<f32>,
+    t: f32,
+) -> vec4<f32> {
+    return clamp(cubic_vec4(a, b, c, d, t), min(b, c), max(b, c));
+}
+
 // Continuous layer values use the same bicubic footprint as elevation.
 fn sample_layer(uv: vec2<f32>) -> vec4<f32> {
     let point = params.sample_rect.xy + uv * params.sample_rect.zw;
@@ -88,7 +101,7 @@ fn sample_layer(uv: vec2<f32>) -> vec4<f32> {
 
     for (var row = 0i; row < 4i; row += 1i) {
         let y = base.y + row - 1i;
-        rows[u32(row)] = cubic_vec4(
+        rows[u32(row)] = bounded_cubic_vec4(
             load_layer(vec2<i32>(base.x - 1i, y)),
             load_layer(vec2<i32>(base.x, y)),
             load_layer(vec2<i32>(base.x + 1i, y)),
@@ -97,13 +110,38 @@ fn sample_layer(uv: vec2<f32>) -> vec4<f32> {
         );
     }
 
-    return cubic_vec4(rows[0], rows[1], rows[2], rows[3], fraction.y);
+    return bounded_cubic_vec4(rows[0], rows[1], rows[2], rows[3], fraction.y);
 }
 
 // Category IDs must remain exact at boundaries rather than becoming fractional.
 fn sample_layer_kind(uv: vec2<f32>) -> f32 {
     let point = params.sample_rect.xy + uv * params.sample_rect.zw;
     return load_layer(vec2<i32>(floor(point + vec2<f32>(0.5)))).x;
+}
+
+fn sample_layer_kind_at(uv: vec2<f32>) -> f32 {
+    let point = params.sample_rect.xy + clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)) * params.sample_rect.zw;
+    return load_layer(vec2<i32>(floor(point + vec2<f32>(0.5)))).x;
+}
+
+fn category_border(uv: vec2<f32>, center: f32, width_px: f32) -> f32 {
+    let delta = max(fwidth(uv) * max(width_px, 0.5), vec2<f32>(0.000001));
+    let different = max(
+        max(
+            step(0.5, abs(center - sample_layer_kind_at(uv + vec2<f32>(delta.x, 0.0)))),
+            step(0.5, abs(center - sample_layer_kind_at(uv - vec2<f32>(delta.x, 0.0)))),
+        ),
+        max(
+            step(0.5, abs(center - sample_layer_kind_at(uv + vec2<f32>(0.0, delta.y)))),
+            step(0.5, abs(center - sample_layer_kind_at(uv - vec2<f32>(0.0, delta.y)))),
+        ),
+    );
+    return different;
+}
+
+fn sample_height_offset(uv: vec2<f32>, offset: vec2<i32>) -> f32 {
+    let point = params.sample_rect.xy + uv * params.sample_rect.zw;
+    return load_height(vec2<i32>(floor(point)) + offset);
 }
 
 fn unit_or_scaled(value: f32, scale: f32) -> f32 {
@@ -311,9 +349,57 @@ fn terrain_normal(surface: vec3<f32>, metres: vec2<f32>) -> vec3<f32> {
     return normalize(vec3<f32>(-surface.y / metres.x, surface.z / metres.y, 1.0));
 }
 
-fn directional_light(normal: vec3<f32>) -> f32 {
-    let light = normalize(vec3<f32>(-0.55, -0.45, 0.72));
-    return clamp(dot(normal, light), 0.25, 1.0);
+fn sun_direction() -> vec3<f32> {
+    let azimuth = params.lighting.x;
+    let elevation = params.lighting.y;
+    let horizontal = cos(elevation);
+    return normalize(vec3<f32>(
+        cos(azimuth) * horizontal,
+        sin(azimuth) * horizontal,
+        sin(elevation),
+    ));
+}
+
+// Multiscale relief combines a fine normal, broad landform normal, local
+// concavity and a short horizon test. It provides 2.5D depth without a mesh.
+fn terrain_lighting(surface: vec3<f32>, uv: vec2<f32>, metres: vec2<f32>) -> vec4<f32> {
+    let fine_normal = terrain_normal(surface, metres);
+    let radius = 3.0;
+    let broad_dx = (sample_height_offset(uv, vec2<i32>(3, 0)) -
+        sample_height_offset(uv, vec2<i32>(-3, 0))) / (radius * 2.0);
+    let broad_dy = (sample_height_offset(uv, vec2<i32>(0, 3)) -
+        sample_height_offset(uv, vec2<i32>(0, -3))) / (radius * 2.0);
+    let broad_normal = terrain_normal(vec3<f32>(surface.x, broad_dx, broad_dy), metres);
+    let sun = sun_direction();
+    let fine_light = max(dot(fine_normal, sun), 0.0);
+    let broad_light = max(dot(broad_normal, sun), 0.0);
+    let diffuse = pow(clamp(broad_light * 0.72 + fine_light * 0.28, 0.0, 1.0), 0.88);
+
+    let neighbor_mean = (
+        sample_height_offset(uv, vec2<i32>(2, 0)) +
+        sample_height_offset(uv, vec2<i32>(-2, 0)) +
+        sample_height_offset(uv, vec2<i32>(0, 2)) +
+        sample_height_offset(uv, vec2<i32>(0, -2))
+    ) * 0.25;
+    let local_scale = max((metres.x + metres.y) * 0.5, 1.0);
+    let concavity = smoothstep(0.006, 0.16, (neighbor_mean - surface.x) / local_scale);
+
+    let sun_xy = normalize(max(abs(sun.xy), vec2<f32>(0.0001)) * sign(sun.xy));
+    var horizon_slope = 0.0;
+    for (var step_index = 1i; step_index <= 2i; step_index += 1i) {
+        let distance = exp2(f32(step_index));
+        let offset = vec2<i32>(round(sun_xy * distance));
+        let run = max(length(vec2<f32>(offset) * metres), 1.0);
+        horizon_slope = max(
+            horizon_slope,
+            (sample_height_offset(uv, offset) - surface.x) / run,
+        );
+    }
+    let horizon = smoothstep(tan(params.lighting.y) * 0.72, tan(params.lighting.y) * 1.08, horizon_slope);
+    let shadow = 1.0 - horizon * params.style.x * 0.52;
+    let ambient = 1.0 - concavity * params.lighting.z * 0.38;
+    let light = clamp((0.34 + diffuse * 0.76) * shadow * ambient, 0.16, 1.10);
+    return vec4<f32>(light, concavity, shadow, length(broad_normal.xy));
 }
 
 fn contour_line(height_m: f32, interval_m: f32) -> f32 {
@@ -362,13 +448,13 @@ fn tectonics_view(
     color *= layer_relief(light, relief * 0.72);
 
     let boundary = clamp(data.y, -1.0, 1.0);
-    let boundary_strength = smoothstep(0.10, 0.62, abs(boundary));
+    let boundary_strength = smoothstep(0.32, 0.82, abs(boundary));
     let boundary_color = select(
         vec3<f32>(0.05, 0.70, 0.91),
         vec3<f32>(1.0, 0.28, 0.055),
         boundary >= 0.0,
     );
-    color = mix(color, boundary_color, boundary_strength * 0.94);
+    color = mix(color, boundary_color, boundary_strength * 0.62);
 
     let uplift = clamp(data.z / 4200.0, -1.0, 1.0);
     color = mix(color, vec3<f32>(0.05, 0.13, 0.22), smoothstep(0.18, 0.92, -uplift) * 0.32);
@@ -386,6 +472,7 @@ fn hydrology_view(
     data: vec4<f32>,
     relative_height: f32,
     light: f32,
+    concavity: f32,
     relief: f32,
 ) -> vec3<f32> {
     let discharge = clamp(data.x, 0.0, 1.0);
@@ -410,7 +497,9 @@ fn hydrology_view(
     color = mix(color, vec3<f32>(0.62, 0.43, 0.19), sediment * 0.34);
     color = mix(color, vec3<f32>(0.42, 0.12, 0.075), erosion * (1.0 - wetness * 0.55) * 0.38);
 
-    let river = pow(smoothstep(0.30, 0.82, discharge), 1.35);
+    let valley = smoothstep(0.03, 0.72, concavity);
+    color = mix(color, vec3<f32>(0.10, 0.28, 0.20), valley * wetness * 0.26);
+    let river = pow(smoothstep(0.24, 0.78, discharge), 1.22) * mix(0.42, 1.0, valley);
     let river_core = smoothstep(0.70, 0.96, discharge);
     let river_color = mix(vec3<f32>(0.025, 0.43, 0.70), vec3<f32>(0.66, 0.93, 0.98), river_core);
     color = mix(color, river_color, river * 0.98);
@@ -422,7 +511,7 @@ fn hydrology_view(
 
 fn climate_view(
     data: vec4<f32>,
-    screen_position: vec2<f32>,
+    map_position: vec2<f32>,
     relative_height: f32,
     light: f32,
     relief: f32,
@@ -447,10 +536,10 @@ fn climate_view(
     let wind_speed = length(wind);
     if (wind_speed > 0.05) {
         let direction = wind / wind_speed;
-        let across = dot(screen_position, vec2<f32>(-direction.y, direction.x));
-        let along = dot(screen_position, direction);
-        let streamline = 1.0 - smoothstep(0.05, 0.18, abs(sin(across * 0.115)));
-        let dash = smoothstep(0.10, 0.75, sin(along * 0.055) * 0.5 + 0.5);
+        let across = dot(map_position, vec2<f32>(-direction.y, direction.x));
+        let along = dot(map_position, direction);
+        let streamline = 1.0 - smoothstep(0.04, 0.17, abs(sin(across * 0.10)));
+        let dash = smoothstep(0.08, 0.78, sin(along * 0.045) * 0.5 + 0.5);
         let wind_alpha = streamline * dash * smoothstep(2.0, 14.0, wind_speed) * 0.13;
         color = mix(color, vec3<f32>(0.82, 0.92, 0.92), wind_alpha);
     }
@@ -476,8 +565,6 @@ fn soil_view(
     color *= mix(0.72, 1.08, soil_depth);
     color = mix(color, vec3<f32>(0.16, 0.38, 0.11), fertility * 0.27);
     color = mix(color, vec3<f32>(0.075, 0.055, 0.035), organic * 0.42);
-    let category_edge = smoothstep(0.20, 1.5, fwidth(kind));
-    color = mix(color, color * 0.54, category_edge);
     return color * layer_relief(light, relief);
 }
 
@@ -500,8 +587,6 @@ fn vegetation_view(
     color = mix(color, vec3<f32>(0.025, 0.22, 0.09), tree_cover * 0.48);
     color = mix(color, vec3<f32>(0.57, 0.63, 0.12), grass_cover * (1.0 - tree_cover * 0.55) * 0.38);
     color = mix(color * 0.68, color * 1.12, productivity);
-    let category_edge = smoothstep(0.20, 1.5, fwidth(kind));
-    color = mix(color, color * 0.58, category_edge);
     return color * layer_relief(light, relief);
 }
 
@@ -524,15 +609,13 @@ fn geology_view(
         let ocean = mix(vec3<f32>(0.07, 0.25, 0.31), vec3<f32>(0.025, 0.08, 0.14), depth);
         color = mix(color, ocean, 0.47);
     }
-    let category_edge = smoothstep(0.20, 1.5, fwidth(kind));
-    color = mix(color, color * 0.50, category_edge);
     return color * layer_relief(light, relief);
 }
 
 fn resources_view(
     data: vec4<f32>,
     kind: f32,
-    screen_position: vec2<f32>,
+    map_position: vec2<f32>,
     relative_height: f32,
     light: f32,
     relief: f32,
@@ -553,11 +636,42 @@ fn resources_view(
     deposit = mix(deposit * 0.72, deposit * 1.10, confidence);
     deposit = mix(deposit, vec3<f32>(0.96, 0.90, 0.63), pow(richness, 2.2) * 0.18);
 
-    let marker_cell = fract(screen_position / 11.0) - vec2<f32>(0.5);
+    let marker_cell = fract(map_position / 13.0) - vec2<f32>(0.5);
     let marker = 1.0 - smoothstep(0.15, 0.31, length(marker_cell));
     let field_tint = visibility * 0.14;
     let marker_tint = visibility * marker * mix(0.82, 0.48, depth);
     return mix(base, deposit, clamp(field_tint + marker_tint, 0.0, 0.92));
+}
+
+fn physical_view(
+    relative_height: f32,
+    surface: vec3<f32>,
+    normal: vec3<f32>,
+    lighting: vec4<f32>,
+) -> vec3<f32> {
+    var color = elevation_color(relative_height);
+    if (relative_height < 0.0) {
+        let coast = exp(-abs(relative_height) / 120.0);
+        color = mix(color, vec3<f32>(0.12, 0.48, 0.50), coast * 0.32);
+        let half_vector = normalize(sun_direction() + vec3<f32>(0.0, 0.0, 1.0));
+        let specular = pow(max(dot(normal, half_vector), 0.0), 42.0) * 0.24;
+        return color * mix(0.88, 1.02, lighting.x) + vec3<f32>(0.72, 0.90, 0.94) * specular;
+    }
+
+    let steepness = clamp(length(normal.xy) * 1.55, 0.0, 1.0);
+    let exposed_rock = smoothstep(0.34, 0.88, steepness);
+    color = mix(color, vec3<f32>(0.38, 0.36, 0.33), exposed_rock * 0.58);
+    let valley_green = lighting.y * (1.0 - exposed_rock);
+    color = mix(color, vec3<f32>(0.13, 0.32, 0.18), valley_green * 0.24);
+
+    let latitude = abs(params.metrics.w);
+    let snowline = mix(4500.0, 650.0, pow(sin(latitude), 1.45));
+    let snow = smoothstep(snowline - 260.0, snowline + 520.0, relative_height) *
+        (1.0 - exposed_rock * 0.20);
+    color = mix(color, vec3<f32>(0.90, 0.92, 0.91), snow * 0.88);
+
+    let detail = params.style.y * (exposed_rock * 0.16 + lighting.y * 0.12 + lighting.w * 0.08);
+    return color * mix(1.0, lighting.x, params.display.w) * (1.0 - detail);
 }
 
 @fragment
@@ -565,12 +679,15 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let surface = sample_surface(mesh.uv);
     let metres = max(params.metrics.xy, vec2<f32>(0.01));
     let normal = terrain_normal(surface, metres);
-    let light = directional_light(normal);
+    let lighting = terrain_lighting(surface, mesh.uv, metres);
+    let light = lighting.x;
     let relative_height = surface.x - params.display.y;
     let mode = u32(params.display.x);
     let relief_strength = params.display.w;
     let layer = sample_layer(mesh.uv);
     let layer_kind = sample_layer_kind(mesh.uv);
+    let map_position = (params.world.xy + mesh.uv * params.world.zw) * vec2<f32>(8192.0, 4096.0);
+    let physical = physical_view(relative_height, surface, normal, lighting);
     var color: vec3<f32>;
 
     if (mode == 1u) {
@@ -592,9 +709,9 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     } else if (mode == 5u) {
         color = tectonics_view(layer, layer_kind, relative_height, light, relief_strength);
     } else if (mode == 6u) {
-        color = hydrology_view(layer, relative_height, light, relief_strength);
+        color = hydrology_view(layer, relative_height, light, lighting.y, relief_strength);
     } else if (mode == 7u) {
-        color = climate_view(layer, mesh.position.xy, relative_height, light, relief_strength);
+        color = climate_view(layer, map_position, relative_height, light, relief_strength);
     } else if (mode == 8u) {
         color = soil_view(layer, layer_kind, relative_height, light, relief_strength);
     } else if (mode == 9u) {
@@ -605,14 +722,21 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
         color = resources_view(
             layer,
             layer_kind,
-            mesh.position.xy,
+            map_position,
             relative_height,
             light,
             relief_strength,
         );
     } else {
-        let illumination = mix(1.0, 0.62 + light * 0.45, relief_strength);
-        color = elevation_color(relative_height) * illumination;
+        color = physical;
+    }
+
+    if (mode >= 5u) {
+        color = mix(physical, color, params.style.w);
+    }
+    if (mode == 5u || mode == 8u || mode == 9u || mode == 10u) {
+        let border = category_border(mesh.uv, layer_kind, 1.15);
+        color = mix(color, color * 0.34, border * params.style.z);
     }
 
     let noise_size = vec2<i32>(textureDimensions(blue_noise_texture, 0));

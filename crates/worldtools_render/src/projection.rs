@@ -7,9 +7,9 @@ use crate::view::MapView;
 
 pub const MAP_TILE_CELLS: u32 = 256;
 const MAP_TILE_CELLS_F32: f32 = 256.0;
-pub const MAP_TILE_APRON: u32 = 1;
+pub const MAP_TILE_APRON: u32 = 4;
 pub const MAP_TILE_SAMPLES: u32 = MAP_TILE_CELLS + 1 + MAP_TILE_APRON * 2;
-pub const MAP_TILE_SAMPLE_COUNT: usize = 67_081;
+pub const MAP_TILE_SAMPLE_COUNT: usize = 70_225;
 pub const MAX_MAP_LEVEL: u8 = 17;
 const PREFETCH_MARGIN: i64 = 1;
 const MAX_VISIBLE_TILES: usize = 64;

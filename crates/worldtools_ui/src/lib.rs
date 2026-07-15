@@ -33,6 +33,7 @@ impl Plugin for WorldToolsUiPlugin {
             .init_resource::<WorldGenerationDraft>()
             .init_resource::<MapReadout>()
             .init_resource::<MapProbe>()
+            .init_resource::<MapPresentationSettings>()
             .init_resource::<AnalysisStatus>()
             .init_resource::<MapViewport>()
             .add_message::<RegenerateWorld>()
@@ -47,9 +48,9 @@ pub mod prelude {
         ActiveTool, AnalysisIssue, AnalysisSeverity, AnalysisStatus, DebugCommand, DebugEvent,
         DebugEventLevel, DebugEventLog, DebugRenderOptions, DebugTab, DebugTelemetry, DebugUiState,
         DocumentStatus, EditorUiState, FrameDiagnostics, GenerationActivity, GenerationStatus,
-        LayerAvailability, LayerCapabilities, LayerProbe, MapProbe, MapReadout, MapViewMode,
-        MapViewport, PipelineStage, ProbeReading, RegenerateWorld, RenderDiagnostics,
-        StreamingDiagnostics, TerrainProbe, ViewportDiagnostics, ViewportRect,
+        LayerAvailability, LayerCapabilities, LayerProbe, MapPresentationSettings, MapProbe,
+        MapReadout, MapViewMode, MapViewport, PipelineStage, ProbeReading, RegenerateWorld,
+        RenderDiagnostics, StreamingDiagnostics, TerrainProbe, ViewportDiagnostics, ViewportRect,
         WorldGenerationDraft, WorldLayer, WorldToolsUiPlugin,
     };
 }

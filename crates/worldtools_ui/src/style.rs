@@ -9,15 +9,16 @@ pub const DRAWER_OPEN_HEIGHT: f32 = 184.0;
 pub const STATUS_BAR_HEIGHT: f32 = 24.0;
 
 pub const BG_MAP: Color32 = Color32::from_rgb(18, 19, 20);
-pub const BG_PANEL: Color32 = Color32::from_rgb(29, 30, 31);
-pub const BG_HEADER: Color32 = Color32::from_rgb(36, 38, 40);
+pub const BG_PANEL: Color32 = Color32::from_rgb(27, 29, 30);
+pub const BG_HEADER: Color32 = Color32::from_rgb(35, 38, 39);
 pub const BG_HOVER: Color32 = Color32::from_rgb(47, 50, 52);
 pub const BG_ACTIVE: Color32 = Color32::from_rgb(57, 61, 63);
 pub const BORDER: Color32 = Color32::from_rgb(67, 69, 70);
 pub const BORDER_DARK: Color32 = Color32::from_rgb(12, 13, 14);
 pub const TEXT: Color32 = Color32::from_rgb(216, 214, 207);
 pub const TEXT_MUTED: Color32 = Color32::from_rgb(145, 145, 140);
-pub const ACCENT: Color32 = Color32::from_rgb(116, 174, 184);
+pub const ACCENT: Color32 = Color32::from_rgb(105, 183, 190);
+pub const ACCENT_WARM: Color32 = Color32::from_rgb(213, 158, 91);
 pub const VALID: Color32 = Color32::from_rgb(127, 182, 157);
 pub const WARNING: Color32 = Color32::from_rgb(214, 163, 95);
 pub const ERROR: Color32 = Color32::from_rgb(204, 105, 101);
@@ -83,8 +84,18 @@ pub fn install(ctx: &egui::Context) {
     visuals.hyperlink_color = ACCENT;
     visuals.warn_fg_color = WARNING;
     visuals.error_fg_color = ERROR;
-    visuals.window_shadow = Shadow::NONE;
-    visuals.popup_shadow = Shadow::NONE;
+    visuals.window_shadow = Shadow {
+        offset: [3, 4],
+        blur: 10,
+        spread: 0,
+        color: Color32::from_black_alpha(112),
+    };
+    visuals.popup_shadow = Shadow {
+        offset: [2, 3],
+        blur: 8,
+        spread: 0,
+        color: Color32::from_black_alpha(104),
+    };
     visuals.menu_corner_radius = egui::CornerRadius::ZERO;
     visuals.window_corner_radius = egui::CornerRadius::ZERO;
     for widget in [
@@ -105,6 +116,20 @@ pub fn panel_frame(fill: Color32) -> egui::Frame {
         .fill(fill)
         .stroke(Stroke::new(1.0, BORDER_DARK))
         .inner_margin(egui::Margin::same(5))
+}
+
+#[must_use]
+pub const fn layer_color(layer: crate::WorldLayer) -> Color32 {
+    match layer {
+        crate::WorldLayer::Elevation => Color32::from_rgb(135, 164, 125),
+        crate::WorldLayer::Tectonics => Color32::from_rgb(205, 124, 82),
+        crate::WorldLayer::Hydrology => Color32::from_rgb(73, 157, 195),
+        crate::WorldLayer::Climate => Color32::from_rgb(99, 178, 172),
+        crate::WorldLayer::Soil => Color32::from_rgb(176, 129, 83),
+        crate::WorldLayer::Vegetation => Color32::from_rgb(93, 158, 92),
+        crate::WorldLayer::Geology => Color32::from_rgb(172, 124, 151),
+        crate::WorldLayer::Resources => ACCENT_WARM,
+    }
 }
 
 #[must_use]

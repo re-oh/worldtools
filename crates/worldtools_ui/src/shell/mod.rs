@@ -2,6 +2,7 @@ mod bottom_drawer;
 mod debug_window;
 mod explorer;
 mod inspector;
+mod legend;
 mod menu_bar;
 mod status_bar;
 mod tool_rail;
@@ -12,8 +13,8 @@ use bevy_egui::{EguiContexts, egui};
 
 use crate::{
     AnalysisStatus, DebugCommand, DebugEventLog, DebugTelemetry, DebugUiState, DocumentStatus,
-    EditorUiState, GenerationStatus, LayerCapabilities, MapProbe, MapReadout, MapViewport,
-    RegenerateWorld, WorldGenerationDraft, style,
+    EditorUiState, GenerationStatus, LayerCapabilities, MapPresentationSettings, MapProbe,
+    MapReadout, MapViewport, RegenerateWorld, WorldGenerationDraft, style,
 };
 
 #[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)] // Bevy system parameters are value wrappers.
@@ -23,6 +24,7 @@ pub fn draw_editor_shell(
     document_and_probe: (Res<DocumentStatus>, Res<MapProbe>),
     generation: Res<GenerationStatus>,
     mut generation_draft: ResMut<WorldGenerationDraft>,
+    mut presentation: ResMut<MapPresentationSettings>,
     readout: Res<MapReadout>,
     analysis: Res<AnalysisStatus>,
     capabilities: Res<LayerCapabilities>,
@@ -64,8 +66,19 @@ pub fn draw_editor_shell(
         &capabilities,
         &mut regeneration,
     );
-    inspector::show(&mut root_ui, &mut ui_state, &capabilities, &probe);
-    viewport::show(&mut root_ui, &mut ui_state, &mut viewport_state);
+    inspector::show(
+        &mut root_ui,
+        &mut ui_state,
+        &capabilities,
+        &probe,
+        &mut presentation,
+    );
+    viewport::show(
+        &mut root_ui,
+        &mut ui_state,
+        &mut viewport_state,
+        &presentation,
+    );
     debug_window::show(
         ctx,
         &mut debug_state,

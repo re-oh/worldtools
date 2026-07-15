@@ -5,7 +5,8 @@ use worldtools_render::{
     MapViewport as RenderViewport,
 };
 use worldtools_ui::{
-    ActiveTool, EditorUiState, MapViewMode, MapViewport as UiViewport, WorldLayer,
+    ActiveTool, EditorUiState, MapPresentationSettings, MapViewMode, MapViewport as UiViewport,
+    WorldLayer,
 };
 
 use crate::layers::simulation_layer;
@@ -20,14 +21,18 @@ impl Plugin for ViewportBridgePlugin {
 
 #[allow(clippy::needless_pass_by_value)] // Bevy system parameters are value wrappers.
 fn sync_viewport(
-    ui: Res<UiViewport>,
-    editor: Res<EditorUiState>,
+    ui_state: (
+        Res<UiViewport>,
+        Res<EditorUiState>,
+        Res<MapPresentationSettings>,
+    ),
     windows: Query<&Window, With<PrimaryWindow>>,
     mut render: ResMut<RenderViewport>,
     mut navigation: ResMut<MapNavigationSettings>,
     mut display: ResMut<MapDisplaySettings>,
     mut streamer: ResMut<MapTileStreamer>,
 ) {
+    let (ui, editor, presentation) = ui_state;
     let Ok(window) = windows.single() else {
         return;
     };
@@ -42,6 +47,15 @@ fn sync_viewport(
     render.pixels_per_point = window.scale_factor();
     navigation.primary_pan = editor.active_tool == ActiveTool::Navigate;
     streamer.set_active_layer(simulation_layer(editor.active_layer));
+    let visual = presentation.style(editor.active_layer);
+    display.relief_strength = visual.relief;
+    display.shadow_strength = visual.shadows;
+    display.detail_strength = visual.detail;
+    display.boundary_strength = visual.boundaries;
+    display.layer_opacity = visual.opacity;
+    display.sun_azimuth_degrees = presentation.sun_azimuth_degrees;
+    display.sun_elevation_degrees = presentation.sun_elevation_degrees;
+    display.ambient_occlusion = presentation.ambient_occlusion;
     display.mode = match editor.active_layer {
         WorldLayer::Elevation => match editor.map_view {
             MapViewMode::Terrain => MapDisplayMode::Physical,

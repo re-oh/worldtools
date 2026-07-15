@@ -53,6 +53,13 @@ pub struct MapDisplaySettings {
     pub sea_level_m: f32,
     pub contour_interval_m: f32,
     pub relief_strength: f32,
+    pub shadow_strength: f32,
+    pub detail_strength: f32,
+    pub boundary_strength: f32,
+    pub layer_opacity: f32,
+    pub sun_azimuth_degrees: f32,
+    pub sun_elevation_degrees: f32,
+    pub ambient_occlusion: f32,
 }
 
 impl Default for MapDisplaySettings {
@@ -61,7 +68,14 @@ impl Default for MapDisplaySettings {
             mode: MapDisplayMode::Physical,
             sea_level_m: 0.0,
             contour_interval_m: 250.0,
-            relief_strength: 1.0,
+            relief_strength: 0.9,
+            shadow_strength: 0.62,
+            detail_strength: 0.72,
+            boundary_strength: 0.72,
+            layer_opacity: 0.92,
+            sun_azimuth_degrees: 315.0,
+            sun_elevation_degrees: 38.0,
+            ambient_occlusion: 0.48,
         }
     }
 }
@@ -78,8 +92,36 @@ impl MapDisplaySettings {
         if !self.relief_strength.is_finite() {
             self.relief_strength = 1.0;
         }
+        if !self.shadow_strength.is_finite() {
+            self.shadow_strength = 0.62;
+        }
+        if !self.detail_strength.is_finite() {
+            self.detail_strength = 0.72;
+        }
+        if !self.boundary_strength.is_finite() {
+            self.boundary_strength = 0.72;
+        }
+        if !self.layer_opacity.is_finite() {
+            self.layer_opacity = 0.92;
+        }
+        if !self.sun_azimuth_degrees.is_finite() {
+            self.sun_azimuth_degrees = 315.0;
+        }
+        if !self.sun_elevation_degrees.is_finite() {
+            self.sun_elevation_degrees = 38.0;
+        }
+        if !self.ambient_occlusion.is_finite() {
+            self.ambient_occlusion = 0.48;
+        }
         self.contour_interval_m = self.contour_interval_m.clamp(1.0, 10_000.0);
         self.relief_strength = self.relief_strength.clamp(0.0, 2.0);
+        self.shadow_strength = self.shadow_strength.clamp(0.0, 1.0);
+        self.detail_strength = self.detail_strength.clamp(0.0, 1.5);
+        self.boundary_strength = self.boundary_strength.clamp(0.0, 1.0);
+        self.layer_opacity = self.layer_opacity.clamp(0.0, 1.0);
+        self.sun_azimuth_degrees = self.sun_azimuth_degrees.rem_euclid(360.0);
+        self.sun_elevation_degrees = self.sun_elevation_degrees.clamp(5.0, 85.0);
+        self.ambient_occlusion = self.ambient_occlusion.clamp(0.0, 1.0);
         self
     }
 
@@ -91,6 +133,28 @@ impl MapDisplaySettings {
             settings.sea_level_m,
             settings.contour_interval_m,
             settings.relief_strength,
+        ]
+    }
+
+    #[must_use]
+    pub(crate) fn style_values(self) -> [f32; 4] {
+        let settings = self.sanitized();
+        [
+            settings.shadow_strength,
+            settings.detail_strength,
+            settings.boundary_strength,
+            settings.layer_opacity,
+        ]
+    }
+
+    #[must_use]
+    pub(crate) fn lighting_values(self) -> [f32; 4] {
+        let settings = self.sanitized();
+        [
+            settings.sun_azimuth_degrees.to_radians(),
+            settings.sun_elevation_degrees.to_radians(),
+            settings.ambient_occlusion,
+            0.0,
         ]
     }
 }
@@ -128,6 +192,7 @@ mod tests {
         assert!(settings.sea_level_m.abs() < f32::EPSILON);
         assert!((settings.contour_interval_m - 250.0).abs() < f32::EPSILON);
         assert!(settings.relief_strength.abs() < f32::EPSILON);
+        assert!((settings.shadow_strength - 0.62).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -135,11 +200,19 @@ mod tests {
         let settings = MapDisplaySettings {
             contour_interval_m: 0.01,
             relief_strength: 20.0,
+            shadow_strength: -2.0,
+            detail_strength: 8.0,
+            boundary_strength: 3.0,
+            layer_opacity: -1.0,
             ..MapDisplaySettings::default()
         }
         .sanitized();
 
         assert!((settings.contour_interval_m - 1.0).abs() < f32::EPSILON);
         assert!((settings.relief_strength - 2.0).abs() < f32::EPSILON);
+        assert!(settings.shadow_strength.abs() < f32::EPSILON);
+        assert!((settings.detail_strength - 1.5).abs() < f32::EPSILON);
+        assert!((settings.boundary_strength - 1.0).abs() < f32::EPSILON);
+        assert!(settings.layer_opacity.abs() < f32::EPSILON);
     }
 }

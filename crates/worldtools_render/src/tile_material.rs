@@ -21,6 +21,12 @@ pub struct TerrainTileMaterialParams {
     pub debug: Vec4,
     /// Display mode, sea level, contour interval, relief strength.
     pub display: Vec4,
+    /// Shadow, terrain detail, categorical boundary, layer opacity.
+    pub style: Vec4,
+    /// Sun azimuth/elevation in radians, ambient occlusion, reserved.
+    pub lighting: Vec4,
+    /// Canonical world origin and span in normalized longitude/latitude.
+    pub world: Vec4,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]

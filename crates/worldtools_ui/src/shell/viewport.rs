@@ -1,9 +1,16 @@
 use bevy_egui::egui::{self, Order, Sense, Vec2};
 use egui_phosphor_icons::{Icon, icons};
 
-use crate::{EditorUiState, MapViewMode, MapViewport, ViewportRect, style};
+use crate::{
+    EditorUiState, MapPresentationSettings, MapViewMode, MapViewport, ViewportRect, style,
+};
 
-pub fn show(root: &mut egui::Ui, editor: &mut EditorUiState, viewport: &mut MapViewport) {
+pub fn show(
+    root: &mut egui::Ui,
+    editor: &mut EditorUiState,
+    viewport: &mut MapViewport,
+    presentation: &MapPresentationSettings,
+) {
     let ctx = root.ctx().clone();
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE)
@@ -14,6 +21,9 @@ pub fn show(root: &mut egui::Ui, editor: &mut EditorUiState, viewport: &mut MapV
                 view_selector(&ctx, rect.min + Vec2::splat(8.0), editor);
             } else {
                 active_layer_badge(&ctx, rect.min + Vec2::splat(8.0), editor.active_layer);
+            }
+            if presentation.legend_visible && presentation.style(editor.active_layer).show_labels {
+                super::legend::show(&ctx, rect, editor.active_layer);
             }
             let pixels_per_point = ctx.pixels_per_point();
             let logical = ViewportRect {
@@ -39,9 +49,21 @@ fn active_layer_badge(ctx: &egui::Context, position: egui::Pos2, layer: crate::W
                 .fill(style::BG_PANEL)
                 .stroke(egui::Stroke::new(1.0, style::BORDER))
                 .inner_margin(egui::Margin::symmetric(8, 5))
+                .shadow(egui::epaint::Shadow {
+                    offset: [2, 3],
+                    blur: 8,
+                    spread: 0,
+                    color: egui::Color32::from_black_alpha(96),
+                })
                 .show(ui, |ui| {
                     ui.set_min_width(112.0);
-                    ui.label(layer.label()).on_hover_text(layer.description());
+                    ui.horizontal(|ui| {
+                        let (swatch, _) =
+                            ui.allocate_exact_size(Vec2::new(3.0, 14.0), Sense::hover());
+                        ui.painter()
+                            .rect_filled(swatch, 0.0, style::layer_color(layer));
+                        ui.label(layer.label()).on_hover_text(layer.description());
+                    });
                 });
         });
 }
@@ -55,6 +77,12 @@ fn view_selector(ctx: &egui::Context, position: egui::Pos2, editor: &mut EditorU
                 .fill(style::BG_PANEL)
                 .stroke(egui::Stroke::new(1.0, style::BORDER))
                 .inner_margin(egui::Margin::same(2))
+                .shadow(egui::epaint::Shadow {
+                    offset: [2, 3],
+                    blur: 8,
+                    spread: 0,
+                    color: egui::Color32::from_black_alpha(96),
+                })
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing = Vec2::new(1.0, 0.0);

@@ -305,7 +305,7 @@ fn tile_params(
             (metres_per_sample * latitude.cos().abs()).max(0.01),
             metres_per_sample,
             0.7,
-            0.0,
+            latitude,
         ),
         debug: Vec4::new(
             debug.shader_flags(stale) as f32,
@@ -314,6 +314,14 @@ fn tile_params(
             f32::from(source.level),
         ),
         display: Vec4::from_array(display.shader_values()),
+        style: Vec4::from_array(display.style_values()),
+        lighting: Vec4::from_array(display.lighting_values()),
+        world: Vec4::new(
+            desired.x as f32 / desired.x_extent() as f32,
+            desired.y as f32 / desired.y_extent() as f32,
+            1.0 / desired.x_extent() as f32,
+            1.0 / desired.y_extent() as f32,
+        ),
     }
 }
 
@@ -410,8 +418,9 @@ mod tests {
         );
         assert!((params.sample_rect.z - 64.0).abs() < f32::EPSILON);
         assert!((params.sample_rect.w - 64.0).abs() < f32::EPSILON);
-        assert!((params.sample_rect.x - 129.0).abs() < f32::EPSILON);
-        assert!((params.sample_rect.y - 129.0).abs() < f32::EPSILON);
+        let expected_origin = 132.0;
+        assert!((params.sample_rect.x - expected_origin).abs() < f32::EPSILON);
+        assert!((params.sample_rect.y - expected_origin).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -473,8 +482,11 @@ mod tests {
         assert_eq!(physical.sample_rect, contours.sample_rect);
         assert_eq!(physical.metrics, contours.metrics);
         assert_eq!(physical.debug, contours.debug);
+        assert_eq!(physical.style, contours.style);
+        assert_eq!(physical.lighting, contours.lighting);
+        assert_eq!(physical.world, contours.world);
         assert_ne!(physical.display, contours.display);
-        assert_eq!(contours.display, Vec4::new(4.0, 0.0, 100.0, 1.0));
+        assert_eq!(contours.display, Vec4::new(4.0, 0.0, 100.0, 0.9));
     }
 
     #[test]
