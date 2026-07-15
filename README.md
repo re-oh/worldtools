@@ -2,6 +2,8 @@
 
 WorldTools is a native Rust and Bevy high-fidelity procedural world generator.
 
+The source-level [offline handbook](docs/handbook/README.md) is designed to be read without an internet connection.
+
 ## Workspace
 
 - `apps/worldtools`: native desktop application
